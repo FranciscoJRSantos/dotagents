@@ -35,7 +35,8 @@ is the same; only the plan and kanban are skipped.
   not required; `afk` slices can chain in one session.
 - Pull coding conventions from project AGENTS.md at the start of each slice (Step 4).
   Do NOT load them in Step 1 — only the slice's own conventions are needed.
-- A slice's `mode` drives the gate: `hitl` (the default) stops for human review; `afk`
+- A slice's `mode` drives the gates: `hitl` (the default) stops for a go on the brief
+  before the Red phase (Step 5) and for human review before the commit; `afk`
   may run unattended only when checks are green and the inner review found no Critical
   items, otherwise it degrades to a `hitl` gate.
 - If the last slice completes, mark the artifact as complete and recommend `/review`.
@@ -264,6 +265,25 @@ the Kanban board:
 - Read each file listed under `module: <file path>`
 - Search for existing test files that cover the module
 - Note existing type definitions, function signatures, and conventions
+
+### Slice Brief — `hitl` only
+
+Before the Red phase of a `hitl` slice, describe what the slice will do and wait for
+a go. `afk` slices skip the brief.
+
+```
+## Slice <N>: <title>   [mode: hitl]
+
+- Goal: <what the slice delivers, one sentence>
+- Steps: <ordered list — tests to write, files to change>
+- Live or remote actions: <deploy, apply, SSH writes, cloud API calls — or "none">
+- Checks: <the commands Step 9 will run>
+```
+
+> "That is the plan for Slice <N>. Go, or tell me what to adjust?"
+
+**Do not write tests or code until the user says go.** A go on the brief covers the
+local work only: confirm each live or remote action again right before running it.
 
 ---
 
@@ -519,11 +539,26 @@ position: implement — slice <N> committed
 
 If there are more slices to implement:
 
-> "Slice <N> is committed. Run `/clear` to start fresh, then `/implement` to continue with Slice <M>."
+> "Slice <N> is committed. Run `/clear` to start fresh, then paste the prompt below."
 
-The progress artifact carries state between cleared contexts — `/implement` reads it in
-Step 1 and resumes at the correct slice. `afk` slices may continue in the same session
-without a clear.
+End with a copy-pasteable handoff prompt for the next slice, in one fenced block:
+
+```
+/implement Slice <M>: <title>
+
+Read first: <impl-progress, kanban, STATE.md, conventions.md, the slice's module files>
+Scope: <what Slice <M> delivers, and what it must not touch>
+Live state: <what is deployed or applied now, and anything changed by hand>
+Carried-over deferrals: <open items from earlier slices that land in or affect Slice <M>>
+Working rules: <the session's corrections and conventions that still apply>
+Checks: <the commands Step 9 runs>
+```
+
+Fill it from `impl-progress`, `.agents/STATE.md` and `.agents/conventions.md`, plus what
+this session learned that those files do not hold. The progress artifact remains the
+resume point — `/implement` reads it in Step 1 — and the prompt carries the session
+context it lacks. `afk` slices may continue in the same session without a clear or a
+prompt.
 
 ---
 
@@ -610,4 +645,4 @@ A good implementation under this skill should:
 - Pass the inner review and full verification before the gate
 - Commit each slice on its own with a why body — git history is the record
 - Pull conventions (don't push them) — keep implementer context lean
-- Hand off via `impl-progress`, clearing context at `hitl` gates
+- Hand off via `impl-progress` and a handoff prompt, clearing context at `hitl` gates
