@@ -1,4 +1,4 @@
-# Agents Guide: personal-agents
+# Agents Guide: dotagents
 
 Skills are slash commands that run in the main conversation and write artifacts;
 agents are isolated subagents that return findings only.

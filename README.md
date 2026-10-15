@@ -1,4 +1,4 @@
-# personal-agents
+# dotagents
 
 Research-backed agent skills and subagents for software engineering workflows.
 Each skill is a slash command that runs inside OpenCode or Claude Code.
