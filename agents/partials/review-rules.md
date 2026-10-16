@@ -125,9 +125,21 @@ Structure output as:
 
 ---
 
+## 🏛 Architecture
+<Only when the architecture frame ran — findings from ~/.agents/partials/architecture-rules.md, each tagged Critical, Warning or Suggestion>
+
+---
+
+## ✂ Simplification
+<Findings from ~/.agents/partials/yagni-rules.md, one line each, each prefixed with its severity emoji>
+
+---
+
 ## ✅ Summary
-<2-3 sentences: what was done well, most important issues, overall impression>
+<2-3 sentences: what was done well, most important issues, overall impression. Include `net: -N lines possible.` when the Simplification section exists.>
 ```
+
+Critical and Warning items count toward the review status wherever they appear, including the Architecture and Simplification sections.
 
 Only include severity sections that have findings. Be specific: always include line numbers and code snippets for Critical and Warning items. Report what the code shows — do not soften findings.
 

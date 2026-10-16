@@ -137,7 +137,11 @@ not have to guess them. Always load and apply:
    relevant to the code being reviewed
 2. **Shared review rules** — `~/.agents/partials/review-rules.md` (specialist frames,
    language-specific defaults, anti-patterns)
-3. **Project-level review overrides** — `.agents/review.md` if present
+3. **Complexity rules** — `~/.agents/partials/yagni-rules.md`, applied to every diff
+4. **Architecture rules** — `~/.agents/partials/architecture-rules.md`, applied only
+   when the diff adds, moves or reshapes modules, public interfaces, data flow or
+   cross-boundary calls
+5. **Project-level review overrides** — `.agents/review.md` if present
 
 Flag any violation of these standards as appropriate severity items in the review.
 

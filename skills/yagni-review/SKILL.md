@@ -48,37 +48,24 @@ The last command lists new, untracked files — `git diff` does not show them.
 
 ## Step 2: Classify Findings
 
-For each finding, assign one tag:
+The tags, line format and gotchas live only in
+`~/.agents/partials/yagni-rules.md`, shared with `@reviewer` — do not duplicate
+them here.
 
-| Tag       | What to cut                                          | Replacement                              |
-|-----------|------------------------------------------------------|------------------------------------------|
-| `delete:`   | Dead code, unused flexibility, speculative feature   | Nothing — remove it                      |
-| `stdlib:`   | Hand-rolled thing the standard library ships         | Name the function/class                  |
-| `native:`   | Dependency or code doing what the platform already does | Name the native feature               |
-| `yagni:`    | Abstraction with one implementation, config nobody sets, layer with one caller | Inline until a second use exists |
-| `shrink:`   | Same logic, fewer lines                              | Show the shorter form                    |
+```bash
+cat ~/.agents/partials/yagni-rules.md
+```
+
+Assign one tag per finding. This skill lists every finding regardless of severity;
+the partial's severity table only matters when `/review` folds them into its
+report.
 
 ---
 
 ## Step 3: Format Output
 
-One line per finding:
-
-```
-L<line>: <tag> <what>. <replacement>.
-```
-
-For multi-file diffs: `<file>:L<line>: <tag> <what>. <replacement>.`
-
-### Examples
-
-```
-L12-38: stdlib: 27-line email validator class. "@" check + confirmation email, 1 line.
-L4: native: moment.js imported for one format call. Intl.DateTimeFormat, 0 deps.
-repo.py:L88: yagni: AbstractRepository with one implementation. Inline it.
-L52-71: delete: retry wrapper around an idempotent local call. Nothing replaces it.
-L30-44: shrink: manual loop builds dict. dict(zip(keys, values)), 1 line.
-```
+One line per finding, in the partial's line format. For a single-file diff the
+file prefix may be dropped.
 
 ---
 
