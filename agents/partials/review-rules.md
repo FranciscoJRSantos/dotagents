@@ -92,11 +92,28 @@ Activate when the diff touches: ETL pipelines, data validation, schema definitio
 9. **Missing freshness SLA check** — pipeline produces output without asserting `max_age < threshold` before publishing → Suggestion
 10. **Backfill without partition isolation** — backfill script processes all partitions in a single transaction → Warning
 
+## Finding Tags
+
+Every finding carries exactly one kind tag. Severity decides whether it blocks;
+the tag says what kind of comment it is. Use only these tags:
+
+| Tag            | Use when                                                      |
+|----------------|---------------------------------------------------------------|
+| `[Issue]`      | Something is wrong and the code shows it                      |
+| `[Suggestion]` | A concrete alternative is better                              |
+| `[Question]`   | The intent cannot be determined from the code                 |
+| `[Discussion]` | A design trade-off a human must decide; there is no fix to apply |
+| `[Nitpick]`    | Style or taste — always 🟢 Suggestion severity, never blocking |
+| `[Praise]`     | Something worth keeping (PR Review mode only)                 |
+
+Prefer `[Question]` over a confident `[Issue]` when the finding depends on intent
+you cannot verify from the diff and its callers.
+
 ## Output Format
 
 Structure output as:
 
-```
+````
 # [MR] Review: <title/branch>
 
 **Files changed:** X  |  **Additions:** +Y  |  **Deletions:** -Z
@@ -107,11 +124,21 @@ Structure output as:
 <Issues that are bugs, security vulnerabilities, or will cause production failures>
 
 ### <filename>
-- **Line X:** <description and why it's a problem>
+- **[Tag] Line X**
+  🧑 <description and why it's a problem, written as a review comment to the author>
   ```
   <relevant snippet>
   ```
-  💡 *Suggestion: <how to fix>*
+  🤖
+  ```yaml
+  file: <path>
+  line: <X>
+  severity: critical        # critical | warning | suggestion
+  tag: issue                # issue | suggestion | question | discussion | nitpick | praise
+  action: fix               # fix | confirm-intent | none
+  fix: <the change to make, imperative, one or two sentences>
+  verify: <how to confirm the fix: a test to add or run, or a behaviour to check>
+  ```
 
 ---
 
@@ -126,7 +153,7 @@ Structure output as:
 ---
 
 ## 🏛 Architecture
-<Only when the architecture frame ran — findings from ~/.agents/partials/architecture-rules.md, each tagged Critical, Warning or Suggestion>
+<Only when the architecture frame ran — findings from ~/.agents/partials/architecture-rules.md, each in the finding format above>
 
 ---
 
@@ -135,13 +162,33 @@ Structure output as:
 
 ---
 
+## 👍 Praise
+<PR Review mode only, when there is something worth keeping: [Praise] findings, 🧑 half only>
+
+---
+
 ## ✅ Summary
 <2-3 sentences: what was done well, most important issues, overall impression. Include `net: -N lines possible.` when the Simplification section exists.>
-```
+````
+
+Each finding has two halves, written once and kept together:
+
+- **🧑 human** — the comment as it would be posted on the MR: addressed to the
+  author, specific, explains why. For `[Question]` and `[Discussion]`, ask the
+  question or lay out the trade-off.
+- **🤖 agent** — a YAML block a fixing agent can act on without reading the 🧑
+  text. `action` is `fix` for `[Issue]`, `[Suggestion]` and `[Nitpick]`,
+  `confirm-intent` for `[Question]` and `[Discussion]` (the agent must ask a
+  human before editing), and `none` for `[Praise]`. With `confirm-intent`,
+  `fix` names the change to make if the answer confirms the concern. Omit `fix`
+  and `verify` when `action` is `none`.
+
+Simplification findings keep the one-line yagni format and have no 🧑/🤖 split —
+that line is already readable by both. `[Praise]` findings have only the 🧑 half.
 
 Critical and Warning items count toward the review status wherever they appear, including the Architecture and Simplification sections.
 
-Only include severity sections that have findings. Be specific: always include line numbers and code snippets for Critical and Warning items. Report what the code shows — do not soften findings.
+Only include sections that have findings. Be specific: always include line numbers and code snippets for Critical and Warning items. Report what the code shows — do not soften findings.
 
 After the Summary section, close with exactly one of these lines:
 
