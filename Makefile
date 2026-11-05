@@ -6,6 +6,12 @@ AGENTS_DIR         ?= $(HOME)/.agents
 OPENCODE_SKILLS_DIR ?= $(HOME)/.config/opencode/skills
 OPENCODE_AGENTS_DIR  ?= $(HOME)/.config/opencode/agents
 
+## OpenCode V2 slash commands. In this repo only `review` (overriding the built-in)
+## and `log-hours` live here: skills are invoked with `@<skill-id>` and need no
+## command shim.
+COMMANDS_SRC         := commands
+OPENCODE_COMMANDS_DIR ?= $(HOME)/.config/opencode/commands
+
 CLAUDE_SKILLS_DIR  ?= $(HOME)/.claude/skills
 CLAUDE_AGENTS_DIR  ?= $(HOME)/.claude/agents
 
@@ -21,11 +27,11 @@ else
 RSYNC_DRY :=
 endif
 
-.PHONY: deploy deploy-skills deploy-agents deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
+.PHONY: deploy deploy-skills deploy-agents deploy-commands deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
 
-## Deploy everything to OpenCode and Claude Code (skills, agents, global rules).
+## Deploy everything to OpenCode and Claude Code (skills, agents, commands, global rules).
 ## Each target dir keeps a .personal-agents-manifest; only listed items are touched.
-deploy: deploy-skills deploy-agents deploy-global
+deploy: deploy-skills deploy-agents deploy-commands deploy-global
 
 ## Skills → ~/.config/opencode/skills/ and ~/.claude/skills/ (agents untouched).
 ## Use this to ship skill changes without clobbering live agents with a stale repo.
@@ -34,6 +40,12 @@ deploy-skills:
 	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/
 	@echo "Deploying skills to $(CLAUDE_SKILLS_DIR)..."
 	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(CLAUDE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/
+
+## OpenCode slash commands → ~/.config/opencode/commands/. Only the overriding
+## `/review` and `log-hours` live here; skills are invoked with `@<skill-id>`.
+deploy-commands:
+	@echo "Deploying commands to $(OPENCODE_COMMANDS_DIR)..."
+	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_COMMANDS_DIR)" $(COMMANDS_SRC)/*
 
 ## Agents → ~/.config/opencode/agents/ (source md), ~/.claude/agents/ (generated
 ## Claude variants) and ~/.agents/ (partials only; canonical review rules).
@@ -69,6 +81,7 @@ drift:
 	@status=0; \
 	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(OPENCODE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/ || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(CLAUDE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/ || status=1; \
+	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(OPENCODE_COMMANDS_DIR)" $(COMMANDS_SRC)/* || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(OPENCODE_AGENTS_DIR)" --md-only || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(CLAUDE_AGENTS_DIR)" --claude || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(AGENTS_DIR)" --partials-only || status=1; \
@@ -278,6 +291,20 @@ lint-docs:
 	done; \
 	rm -f "$$refs"; \
 	echo ""; \
+	echo "=== Checking @-references ==="; \
+	at_refs=$$(mktemp); \
+	grep -rhoP '\x60@\K[a-z][a-z0-9-]+' AGENTS.md README.md $(GLOBAL_SKILLS)/*/SKILL.md $(AGENTS_SRC)/*.md 2>/dev/null | sort -u > "$$at_refs"; \
+	for ref in $$(cat "$$at_refs"); do \
+		case "$$ref" in me|agent-name) continue ;; esac; \
+		if [ -f "$(GLOBAL_SKILLS)/$$ref/SKILL.md" ] || [ -f "$(AGENTS_SRC)/$$ref.md" ]; then \
+			echo "OK    @$$ref"; \
+		else \
+			echo "FAIL  @$$ref referenced but no skill or agent exists"; \
+			ok=false; \
+		fi \
+	done; \
+	rm -f "$$at_refs"; \
+	echo ""; \
 	echo "=== Checking agent references in AGENTS.md ==="; \
 	for f in $(AGENTS_SRC)/*.md; do \
 		agent=$$(basename "$$f" .md); \
@@ -290,17 +317,19 @@ lint-docs:
 	echo ""; \
 	echo "=== Checking artifact chain integrity ==="; \
 	chain=$$(mktemp); \
-	grep -oP '\x60<LABEL>-[^\x60]+\x60\s*\|\s*\x60/\w+' AGENTS.md 2>/dev/null | sed 's/\x60//g' > "$$chain"; \
+	grep -oP '\x60<LABEL>-[^\x60]+\x60\s*\|\s*\x60[@/]\w+' AGENTS.md 2>/dev/null | sed 's/\x60//g' > "$$chain"; \
 	while IFS='|' read -r artifact written_by; do \
 		[ -n "$$artifact" ] || continue; \
 		artifact=$$(echo "$$artifact" | xargs); \
-		written_by=$$(echo "$$written_by" | xargs | cut -d' ' -f1 | tr -d '/'); \
-		skill_file="$(GLOBAL_SKILLS)/$$written_by/SKILL.md"; \
+		written_by=$$(echo "$$written_by" | xargs | cut -d' ' -f1); \
+		sigil=$$(printf '%s' "$$written_by" | cut -c1); \
+		name=$$(printf '%s' "$$written_by" | tr -d '/@'); \
+		skill_file="$(GLOBAL_SKILLS)/$$name/SKILL.md"; \
 		if [ ! -f "$$skill_file" ]; then \
-			echo "FAIL  artifact '$$artifact' written by '$$written_by' but skill not found at $$skill_file"; \
+			echo "FAIL  artifact '$$artifact' written by '$$name' but skill not found at $$skill_file"; \
 			ok=false; \
 		else \
-			echo "OK    $$artifact ← /$$written_by"; \
+			echo "OK    $$artifact ← $$sigil$$name"; \
 		fi \
 	done < "$$chain"; \
 	rm -f "$$chain"; \

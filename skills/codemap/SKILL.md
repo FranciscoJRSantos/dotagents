@@ -6,7 +6,7 @@ description: >
   patterns, data flow, and integration points. Use this skill when the user
   says "codemap", "understand the codebase", "map this repo", "what's in
   this codebase", or when entering an unfamiliar repository to get oriented.
-  Entry point: /codemap
+  Entry point: @codemap
 ---
 
 # Codemap Skill
@@ -199,7 +199,7 @@ block's closing `}`. The same block lives in `agents/observer.md`, and
 mkdir -p .agents/codemap
 ```
 
-<!-- codemap-state-hash:begin — shared verbatim between /codemap and @observer; make lint-agents checks identity -->
+<!-- codemap-state-hash:begin — shared verbatim between @codemap and @observer; make lint-agents checks identity -->
 ```bash
 {
   printf '{\n  "generated": "%s",\n  "folders": {\n' "$(date -Iseconds)"

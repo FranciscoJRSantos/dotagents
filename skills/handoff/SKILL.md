@@ -6,7 +6,7 @@ description: >
   .agents/handoffs/ and, after you confirm, syncs .agents/STATE.md for the next
   session. Use when the user says "handoff", "write a handoff", "prepare a
   handoff for the next session", or is ending a session mid-work.
-  Entry point: /handoff [what the next session will focus on]
+  Entry point: @handoff [what the next session will focus on]
 argument-hint: "What will the next session be used for?"
 disable-model-invocation: true
 ---
@@ -23,7 +23,7 @@ can continue the work without re-reading this session.
   (gitignored), `$TMPDIR` is empty on some machines, and a root-level file breaks
   `make lint-*` and `git status`.
 - Always update .agents/STATE.md (position, current_branch, decisions, blockers)
-  BECAUSE that is what `/plan` reads to bootstrap the next session.
+  BECAUSE that is what `@plan` reads to bootstrap the next session.
 - Always show the handoff and confirm before writing STATE.md BECAUSE STATE.md is
   the shared resume point and a wrong position sends the next session off course.
 - Never duplicate content already in artifacts (.agents/artifacts/*), specs, plans,
@@ -54,8 +54,8 @@ Write to `.agents/handoffs/<timestamp>.md` with a bash heredoc, containing:
 - **Current state** — branch, stage, what is done and what is not
 - **Context** — references to artifacts/plans/ADRs by path, never duplicated
 - **Next actions** — concrete, ordered, matching the current workflow stage
-- **Suggested skills** — which repo skills to invoke next (`/grill-me`, `/plan`,
-  `/implement`, `/review`, `/ship`, `/codemap`), with the entry point
+- **Suggested skills** — which repo skills to invoke next (`@grill-me`, `@plan`,
+  `@implement`, `/review`, `@ship`, `@codemap`), with the entry point
 - **Redactions** — note anything deliberately omitted for secrecy
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->

@@ -11,7 +11,7 @@ description: >
 
 Run the full check suite, gate on a review that matches HEAD, autosquash fixups,
 push the branch, and create a merge request. Artifacts close last, so an aborted
-ship never leaves them marked closed. `/ship` does not commit — `/implement`
+ship never leaves them marked closed. `@ship` does not commit — `@implement`
 owns per-slice commits (including ad-hoc mode).
 
 ---
@@ -21,7 +21,7 @@ owns per-slice commits (including ad-hoc mode).
 - If MR creation fails because one already exists for the branch (`glab mr create` / `gh pr create`), view it instead of creating a duplicate (`glab mr view` / `gh pr view`) and show the URL to the user.
 - Detect the forge from the `origin` remote before creating an MR — use `gh` for GitHub and `glab` for GitLab. If the matching CLI is missing, report it rather than failing the whole ship.
 - Never use `--no-verify` to bypass a failing pre-commit hook. Fix the underlying issue instead.
-- `/ship` never commits. If the working tree is dirty, stop and send the user to `/implement` (ad-hoc mode) or a manual commit — do not stage or commit here.
+- `@ship` never commits. If the working tree is dirty, stop and send the user to `@implement` (ad-hoc mode) or a manual commit — do not stage or commit here.
 - If the branch has no upstream yet, `git push -u origin <BRANCH>` sets it automatically — no separate `git push --set-upstream` needed.
 - The `--target-branch` for the MR is detected from the branch's actual creation point (merge-base), falling back to git-flow naming conventions — never hardcode `main`.
 - If `make type_check` exits 0 but printed type errors to stderr, the Makefile may be suppressing the exit code — check the output text for error patterns, not just the exit code.
@@ -35,7 +35,7 @@ Detect the project stack and run lint → type check → tests before anything e
 
 ### 1a. Confirm a Clean Working Tree
 
-`/ship` does not commit, so the tree must be clean first:
+`@ship` does not commit, so the tree must be clean first:
 
 ```bash
 git status --porcelain
@@ -44,8 +44,8 @@ git status --porcelain
 If anything is printed (other than `.agents/` state files, which are untracked
 working state), stop:
 
-> "The working tree is dirty. Commit the work first — `/implement` in ad-hoc mode
-> does this — or commit by hand, then run `/ship` again."
+> "The working tree is dirty. Commit the work first — `@implement` in ad-hoc mode
+> does this — or commit by hand, then run `@ship` again."
 
 ### 1b. Detect Makefile Targets
 
@@ -128,7 +128,7 @@ the user fix before proceeding. Do not ship broken code.
 
 Resolve the label and read the review artifact:
 
-<!-- artifact-label:begin — shared verbatim across /plan, /implement, /review, /ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
@@ -187,7 +187,7 @@ Warning items and ask the user to confirm before proceeding.
 Fold `--fixup` commits into their target slices so history reads one commit per
 slice. This runs before the push, and is skipped when the branch already has an
 upstream carrying these commits — rewriting pushed history would need a
-force-push, which `/ship` never does silently.
+force-push, which `@ship` never does silently.
 
 ```bash
 BRANCH=$(git branch --show-current)
@@ -374,7 +374,7 @@ done
 
 ## Quality Bar
 
-- Never ship if the working tree is dirty — `/ship` does not commit
+- Never ship if the working tree is dirty — `@ship` does not commit
 - Never ship if the verification suite (Step 1) fails
 - Always check review freshness against `reviewed_head` before shipping
 - Never autosquash once the commits have been pushed

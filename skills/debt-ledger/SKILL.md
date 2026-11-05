@@ -3,7 +3,7 @@ name: debt-ledger
 description: >
   Harvest every `deferred:` comment in the codebase into a debt ledger,
   so deliberate shortcuts and deferrals get tracked instead of rotting into
-  "later means never". Use when the user says "debt ledger", "/debt-ledger",
+  "later means never". Use when the user says "debt ledger", "@debt-ledger",
   "what did we defer", "list the shortcuts", "ponytail ledger", or "what
   did we mark to do later". One-shot report, changes nothing.
 ---
@@ -113,6 +113,6 @@ no_trigger: <M>
 
 ## Boundaries
 
-Reads and reports only, changes nothing. One-shot. Complements `/learn`
+Reads and reports only, changes nothing. One-shot. Complements `@learn`
 (session-level lessons) and `.agents/STATE.md` "Deferred Items" (session
 deferrals) with code-level deferral tracking.

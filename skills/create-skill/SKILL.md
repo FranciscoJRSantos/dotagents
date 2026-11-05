@@ -4,15 +4,15 @@ description: >
   Guide the creation of a new skill or agent using the 6 research-backed OpenCode
   principles as a quality checklist. Produces a ready-to-lint SKILL.md or agent .md
   file. Use this skill whenever the user says "create a skill", "new skill", "add an
-  agent", "build a slash command", "/create-skill", or wants to author a new workflow
+  agent", "build a slash command", "@create-skill", or wants to author a new workflow
   extension for this repo.
-  Entry point: /create-skill [skill|agent] [name]
+  Entry point: @create-skill [skill|agent] [name]
 ---
 
 # Create-Skill Skill
 
-Guides the design and creation of a new skill (slash command) or agent (isolated
-subagent) from scratch, applying 6 research-backed principles as a checklist before
+Guides the design and creation of a new skill (invoked with `@<skill-id>`) or agent
+(isolated subagent) from scratch, applying 6 research-backed principles as a checklist before
 producing the draft. Nothing is written until the user explicitly approves.
 
 ---
@@ -38,13 +38,13 @@ producing the draft. Nothing is written until the user explicitly approves.
 
 ## Step 1: Determine Type
 
-If the user provided `skill` or `agent` inline (e.g., `/create-skill agent foo`), skip
+If the user provided `skill` or `agent` inline (e.g., `@create-skill agent foo`), skip
 this question and proceed with that type.
 
 Otherwise, ask:
 
 > "Are you creating a **skill** or an **agent**?
-> - **Skill** — slash command that runs inside your main conversation; can write
+> - **Skill** — runs inside your main conversation as `@<skill-id>`; can write
 >   artifacts; best for workflows, checklists, and orchestration.
 > - **Agent** — isolated subagent with its own context window; returns findings only,
 >   no artifact writes; best for file-heavy analysis that would bloat the main context."
@@ -59,7 +59,7 @@ Ask the three questions below **one at a time**. If the user answers multiple at
 accept them and skip the remaining questions.
 
 1. **What problem does this solve?** (1–2 sentences — the core job to be done)
-2. **What phrases should trigger it?** (invocations, slash command name, entry point)
+2. **What phrases should trigger it?** (invocations, skill id, entry point)
 3. **What does it output?** (artifact with specific fields, structured findings only,
    or nothing — be specific about format)
 
@@ -93,7 +93,7 @@ P1–P9 checks from Step 3 before finalising.
 name: <name>
 description: >
   <what it does — include trigger phrases and entry point on the last line>
-  Entry point: /<name> [args]
+  Entry point: @<name> [args]
 ---
 
 # <Name> Skill

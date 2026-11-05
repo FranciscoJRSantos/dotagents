@@ -1,7 +1,8 @@
 # dotagents
 
 Research-backed agent skills and subagents for software engineering workflows.
-Each skill is a slash command that runs inside OpenCode or Claude Code.
+Skills run inside OpenCode or Claude Code and are invoked with `@<skill-id>`;
+`/review` is the one overriding slash command.
 
 See [AGENTS.md](AGENTS.md) for the architecture, the artifact chain and the
 `.agents/` conventions. That file is the home for the artifact-chain table; this
@@ -11,23 +12,23 @@ README covers setup and the catalogue.
 
 **Primary (design → ship):**
 ```
-/grill-me → [post to Jira via MCP] → /plan → /implement → /review → /ship
+@grill-me → [post to Jira via MCP] → @plan → @implement → /review → @ship
 ```
 
 **Quick fix (no upfront design):**
 ```
-/implement   # ad-hoc: one goal + one acceptance criterion, one reviewed commit
-/ship
+@implement   # ad-hoc: one goal + one acceptance criterion, one reviewed commit
+@ship
 ```
 
 **Ticket already exists in Jira:**
 ```
-/plan TICKET → /implement → /review → /ship
+@plan TICKET → @implement → /review → @ship
 ```
 
 **Session start on unfamiliar code:**
 ```
-/codemap
+@codemap
 ```
 
 ---
@@ -36,7 +37,7 @@ README covers setup and the catalogue.
 
 ```bash
 git clone <repo>
-make deploy   # sync skills and agents to OpenCode and Claude Code
+make deploy   # sync skills, agents and commands to OpenCode and Claude Code
 ```
 
 `make deploy` is manifest-based: each target dir keeps a
@@ -46,23 +47,32 @@ updated or removed. Anything else at the destination (e.g.
 Preview any deploy with `make deploy DRY_RUN=1`; `make drift` diffs the repo
 against every deployed location and never copies.
 
+`commands/` is where OpenCode V2 slash commands live. In this repo it holds
+`review`, which overrides the built-in `/review` so there is one canonical review
+trigger, and `log-hours`. Skills themselves need no command file because they are
+invoked with `@<id>`.
+
 ---
 
 ## Skills
 
+Skills are invoked with `@<id>` (explicit) or matched by description (ambient);
+`/review` is the single slash command kept for compatibility.
+
 | Skill           | Invocation                            | Purpose                                                                   |
 |-----------------|---------------------------------------|---------------------------------------------------------------------------|
-| `/grill-me`     | `/grill-me [topic]`                   | Stress-test a design through adversarial decision-tree conversation       |
-| `/plan`         | `/plan TICKET`                        | Generate type-aware implementation plan → Jira comment                    |
-| `/implement`    | `/implement`                          | Slice-by-slice TDD with per-slice commits (ad-hoc mode without a plan)    |
+| `@grill-me`     | `@grill-me [topic]`                   | Stress-test a design through adversarial decision-tree conversation       |
+| `@plan`         | `@plan TICKET`                        | Generate type-aware implementation plan → Jira comment                    |
+| `@implement`    | `@implement`                          | Slice-by-slice TDD with per-slice commits (ad-hoc mode without a plan)    |
 | `/review`       | `/review`                             | Severity-grouped code review vs main                                      |
-| `/yagni-review` | `/yagni-review`                       | Over-engineering-only review: find what to delete, one line per finding   |
-| `/debt-ledger`  | `/debt-ledger`                        | Harvest `deferred:` comments into a tracked debt ledger                   |
-| `/ship`         | `/ship`                               | Checks → fresh-review gate → autosquash → push → MR; close artifacts last |
-| `/codemap`      | `/codemap`                            | Generate hierarchical architectural codemap of the codebase               |
-| `/learn`        | `/learn [rule]`                       | Capture a correction append-only; `/learn review` prunes and promotes     |
-| `/create-skill` | `/create-skill [skill\|agent] [name]` | Guide creation of new skills and agents using research-backed checklist   |
-| `/handoff`      | `/handoff [focus]`                    | Compact the session into a handoff doc + sync STATE.md for the next agent |
+| `@yagni-review` | `@yagni-review`                       | Over-engineering-only review: find what to delete, one line per finding   |
+| `@debt-ledger`  | `@debt-ledger`                        | Harvest `deferred:` comments into a tracked debt ledger                   |
+| `@ship`         | `@ship`                               | Checks → fresh-review gate → autosquash → push → MR; close artifacts last |
+| `@codemap`      | `@codemap`                            | Generate hierarchical architectural codemap of the codebase               |
+| `@learn`        | `@learn [rule]`                       | Capture a correction append-only; `@learn review` prunes and promotes     |
+| `@create-skill` | `@create-skill [skill\|agent] [name]` | Guide creation of new skills and agents using research-backed checklist   |
+| `@handoff`      | `@handoff [focus]`                    | Compact the session into a handoff doc + sync STATE.md for the next agent |
+| `@log-hours`    | `@log-hours [YYYY-MM-DD \| yesterday]` | Draft a day's Toggl entries from history + sessions; write on approval    |
 
 ---
 
@@ -83,9 +93,9 @@ Skills call these CLI tools when available. Install them separately.
 
 | Tool                 | Used by                        | Purpose                               |
 |----------------------|--------------------------------|---------------------------------------|
-| `glab`               | `/ship`, `reviewer`            | GitLab CLI for MRs and pipelines      |
-| `acli`               | `/plan`                        | Atlassian CLI for Jira                |
-| `uv` / `poetry`      | `/ship`                        | Python dependency sync                |
+| `glab`               | `@ship`, `reviewer`            | GitLab CLI for MRs and pipelines      |
+| `acli`               | `@plan`                        | Atlassian CLI for Jira                |
+| `uv` / `poetry`      | `@ship`                        | Python dependency sync                |
 
 ---
 
@@ -93,26 +103,26 @@ Skills call these CLI tools when available. Install them separately.
 
 **Before implementing — validate the plan:**
 ```
-/plan TICKET
-/implement
+@plan TICKET
+@implement
 ```
 
 **Before shipping — validate the pipeline:**
 ```
 /review
-/ship
+@ship
 ```
 
 **Capture a lesson before closing a session:**
 ```
-/learn never use bare except clauses because they hide all errors silently
+@learn never use bare except clauses because they hide all errors silently
 ```
 
 **Context hygiene between major steps:**
 ```
-/plan TICKET   → /clear → /implement   # fresh context for implementation
-/implement     → /clear → /review      # fresh context for review
-/review        → /clear → /ship        # fresh context for ship
+@plan TICKET   → /clear → @implement   # fresh context for implementation
+@implement     → /clear → /review      # fresh context for review
+/review        → /clear → @ship        # fresh context for ship
 ```
 
 ---
@@ -139,7 +149,7 @@ it up. `make drift` diffs the deployed copy against `global/AGENTS.md`.
 
 | Command              | What it does                                                                                     |
 |----------------------|--------------------------------------------------------------------------------------------------|
-| `make deploy`        | Sync skills + agents + global rules to OpenCode and Claude Code                                  |
+| `make deploy`        | Sync skills + agents + commands + global rules to OpenCode and Claude Code                       |
 | `make deploy-skills` | Sync skills to OpenCode + Claude only — leaves live agents untouched                             |
 | `make deploy-global` | Install `global/AGENTS.md` → `~/.config/opencode/AGENTS.md` (gitignored source; skips if absent) |
 | `make drift`         | Read-only diff of the repo against every deployed location (never copies)                        |

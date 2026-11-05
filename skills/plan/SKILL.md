@@ -3,16 +3,16 @@ name: plan
 description: >
   Generates a type-aware implementation plan with Kanban/DAG vertical slices and
   presents it for approval before writing artifacts. Sources the plan from a Jira
-  ticket (/plan PROJ-123) or from a local /grill-me decision log (/plan grill-<slug>,
-  or /plan with no argument to pick from a list). Produces both a plan artifact and
+  ticket (@plan PROJ-123) or from a local @grill-me decision log (@plan grill-<slug>,
+  or @plan with no argument to pick from a list). Produces both a plan artifact and
   a kanban-board artifact.
-  Entry point: /plan PROJ-123 | /plan grill-<slug>
+  Entry point: @plan PROJ-123 | @plan grill-<slug>
 ---
 
 # Plan Skill
 
 Produces a structured, type-aware implementation plan with a Kanban board of
-vertical slices, sourced either from a Jira ticket or from a local `/grill-me`
+vertical slices, sourced either from a Jira ticket or from a local `@grill-me`
 decision log. Nothing is written to Jira until the user explicitly approves.
 
 ---
@@ -28,13 +28,13 @@ decision log. Nothing is written to Jira until the user explicitly approves.
 
 ## Step 1: Determine the Source
 
-`/plan` takes one of three inputs:
+`@plan` takes one of three inputs:
 
 | Invocation | Source | Jira access |
 |---|---|---|
-| `/plan PROJ-123` | the Jira ticket | fetch + post |
-| `/plan grill-<slug>` | `.agents/artifacts/grill-<slug>-decisions.md` | none |
-| `/plan` | pick from the grill logs on disk | none |
+| `@plan PROJ-123` | the Jira ticket | fetch + post |
+| `@plan grill-<slug>` | `.agents/artifacts/grill-<slug>-decisions.md` | none |
+| `@plan` | pick from the grill logs on disk | none |
 
 ### 1a. Jira key
 
@@ -468,7 +468,7 @@ mkdir -p .agents
 mkdir -p .agents/artifacts
 ```
 
-<!-- artifact-label:begin — shared verbatim across /plan, /implement, /review, /ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
@@ -526,9 +526,9 @@ slices:
 ---
 ```
 
-This artifact is read by `/implement` to know which slice to work on and to resume.
+This artifact is read by `@implement` to know which slice to work on and to resume.
 
-Run `/clear` before `/implement` to start implementation in a fresh context window.
+Run `/clear` before `@implement` to start implementation in a fresh context window.
 
 ---
 

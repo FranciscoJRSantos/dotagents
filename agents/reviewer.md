@@ -7,7 +7,7 @@ description: >
   including the working tree and untracked files. Returns structured findings
   grouped by severity with a GATE verdict. Tab-switchable as primary agent for
   sustained review sessions.
-model: opencode-go/qwen3.7-plus
+model: opencode-go/glm-5.3-flash
 mode: all
 permissions:
   - action: edit
@@ -35,9 +35,9 @@ Check the invocation context:
   may also name a **scope**:
   - **branch** (default) — from the merge base with the default branch through
     the working tree, including untracked files. This is the final review before
-    `/ship`.
+    `@ship`.
   - **slice** — only the current slice: `git diff HEAD` plus untracked files.
-    `/implement` passes this for its inner review.
+    `@implement` passes this for its inner review.
 
 ## PR Review Mode (teammate's MR)
 
@@ -93,7 +93,7 @@ git ls-files --others --exclude-standard
 
 ### Load plan artifact (if available)
 
-<!-- artifact-label:begin — shared verbatim across /plan, /implement, /review, /ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}

@@ -33,7 +33,7 @@ structure and answer questions about it with precision.
 ## Your Constraints
 
 - **READ-HEAVY** — you load the codemap first, then drill into source files as needed
-- **INCREMENTAL ONLY** — never regenerate the full codemap from scratch (use `/codemap` for that)
+- **INCREMENTAL ONLY** — never regenerate the full codemap from scratch (use `@codemap` for that)
 - **STRUCTURED OUTPUT** — always answer with file paths and reasoning, not generalities
 - **NO DELEGATION** — do your own work; don't spawn sub-agents
 
@@ -60,7 +60,7 @@ cat "$CODEMAP_ROOT" 2>/dev/null || echo "NO_CODEMAP"
 ```
 
 If `NO_CODEMAP`:
-- Suggest running `/codemap` to generate a full map, OR
+- Suggest running `@codemap` to generate a full map, OR
 - Offer to do a quick raw exploration of the relevant area (use glob/grep/ls)
 
 If the atlas exists, the `Folder Map` table tells you which folders exist and
@@ -150,7 +150,7 @@ The shared state block below hashes every top-level folder tree and prints the
 current state as JSON. Run it as-is — do not redirect here; Step 4 writes the
 file. Then compare its `folders` map against the state loaded in Step 1.
 
-<!-- codemap-state-hash:begin — shared verbatim between /codemap and @observer; make lint-agents checks identity -->
+<!-- codemap-state-hash:begin — shared verbatim between @codemap and @observer; make lint-agents checks identity -->
 ```bash
 {
   printf '{\n  "generated": "%s",\n  "folders": {\n' "$(date -Iseconds)"
@@ -333,4 +333,4 @@ and writes model artifacts. The codemap now reflects this dependency.
 2. **Incremental updates** — only touch folders with structural changes
 3. **Be specific** — file paths, data flow direction, integration points
 4. **No speculation** — if the codemap + source files can't answer, say so
-5. **If no codemap exists** — suggest `/codemap` or do raw exploration as fallback
+5. **If no codemap exists** — suggest `@codemap` or do raw exploration as fallback

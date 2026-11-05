@@ -23,9 +23,9 @@ Pick one:
 
 - **branch** (default) — the whole branch: from the merge base with the default
   branch through the working tree, including untracked files. Use this for the
-  final review before `/ship`.
+  final review before `@ship`.
 - **slice** — the current slice only: `git diff HEAD` plus untracked files. Use
-  this when reviewing work inside a single `/implement` slice.
+  this when reviewing work inside a single `@implement` slice.
 
 If the user did not specify a scope, use `branch`.
 
@@ -73,14 +73,14 @@ mkdir -p .agents
 mkdir -p .agents/artifacts
 ```
 
-<!-- artifact-label:begin — shared verbatim across /plan, /implement, /review, /ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
 ```
 <!-- artifact-label:end -->
 
-Record the commit that was reviewed, so `/ship` can tell whether the review still
+Record the commit that was reviewed, so `@ship` can tell whether the review still
 matches HEAD:
 
 ```bash
@@ -107,7 +107,7 @@ status: clean        # or: has-findings
 
 Followed by the reviewer's full report.
 
-`/ship` reads this artifact, checks that `reviewed_head` still matches HEAD (or
+`@ship` reads this artifact, checks that `reviewed_head` still matches HEAD (or
 that only `fixup!` commits follow), and blocks on `status: has-findings`.
 
-Run `/clear` before `/ship` to start the ship step in a fresh context window.
+Run `/clear` before `@ship` to start the ship step in a fresh context window.

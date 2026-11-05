@@ -3,7 +3,7 @@ name: grill-me
 description: >
   Interview the user relentlessly about a plan or design until reaching shared
   understanding, resolving each branch of the decision tree. Produces a decision
-  log artifact consumable by /plan. Invoke with "/grill-me [topic]".
+  log artifact consumable by @plan. Invoke with "@grill-me [topic]".
 ---
 
 # Grill-Me Skill
@@ -14,7 +14,7 @@ one. Always explores the codebase before asking a question if the answer is
 knowable from code.
 
 Produces a decision log artifact (`.agents/artifacts/grill-<slug>-decisions.md`)
-that `/plan` can consume downstream.
+that `@plan` can consume downstream.
 
 ---
 
@@ -25,7 +25,7 @@ Ask the user what they want to grill:
 > "What plan or design do you want me to stress-test? Share the context, a
 > doc, a quick sketch, or just describe what you're thinking about."
 
-If the user provided a topic inline (e.g. `/grill-me add rate limiting to the API gateway`), use that as the starting context and say you'll explore the codebase for relevant details.
+If the user provided a topic inline (e.g. `@grill-me add rate limiting to the API gateway`), use that as the starting context and say you'll explore the codebase for relevant details.
 
 If the shared context references existing code, Jira tickets, or ADRs, explore them first to ground the conversation:
 
@@ -184,7 +184,7 @@ ticket: <PROJ-123 or null>
 
 Based on the resolved decisions, suggest one or more of:
 
-- `/plan` — to create an implementation plan from resolved decisions
+- `@plan` — to create an implementation plan from resolved decisions
 - Post to Jira via MCP — to turn these decisions into a ticket
 ```
 
@@ -192,7 +192,7 @@ The log is local working state, not the record. Each decision must reach the
 commit message of the work it drives — that is where the "why" lives on.
 
 Set `ticket:` to the Jira key when the grilled work maps to a ticket, so
-`/plan <KEY>` can find this log; use `ticket: null` otherwise. `/plan
+`@plan <KEY>` can find this log; use `ticket: null` otherwise. `@plan
 grill-<slug>` reads it without any Jira access.
 
 End with a concise summary confirming the artifact was saved.

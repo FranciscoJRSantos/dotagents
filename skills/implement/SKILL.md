@@ -7,9 +7,9 @@ description: >
   Red-Green-Refactor, passes an inner review, and ends in its own commit.
   Works from a plan, or in ad-hoc mode with no plan as a single reviewed slice.
   Clear context between slices. Use this skill whenever the user says
-  "implement", "start coding", "proceed with implementation", "/implement", or
+  "implement", "start coding", "proceed with implementation", "@implement", or
   wants to begin implementation.
-  Entry point: /implement
+  Entry point: @implement
 ---
 
 # Implement Skill
@@ -51,7 +51,7 @@ is the same; only the plan and kanban are skipped.
 Resolve the artifact label from the current branch name — the ticket key when the
 branch carries one, otherwise the branch name with `/` replaced by `-`:
 
-<!-- artifact-label:begin — shared verbatim across /plan, /implement, /review, /ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
@@ -93,7 +93,7 @@ If found with `status: complete` — warn:
 
 ## Ad-hoc Mode (no plan)
 
-For a quick fix with no `/plan` artifacts, run a single `hitl` slice through the
+For a quick fix with no `@plan` artifacts, run a single `hitl` slice through the
 full loop. Take a one-sentence ticket from the branch label and ask for exactly two
 things:
 
@@ -488,7 +488,7 @@ earlier slice, commit the correction as a fixup against that slice's commit sha
 git commit --fixup=<slice sha>
 ```
 
-`/ship` autosquashes fixups into their targets before pushing, so history stays one
+`@ship` autosquashes fixups into their targets before pushing, so history stays one
 commit per slice.
 
 ---
@@ -544,7 +544,7 @@ If there are more slices to implement:
 End with a copy-pasteable handoff prompt for the next slice, in one fenced block:
 
 ```
-/implement Slice <M>: <title>
+@implement Slice <M>: <title>
 
 Read first: <impl-progress, kanban, STATE.md, conventions.md, the slice's module files>
 Scope: <what Slice <M> delivers, and what it must not touch>
@@ -556,7 +556,7 @@ Checks: <the commands Step 9 runs>
 
 Fill it from `impl-progress`, `.agents/STATE.md` and `.agents/conventions.md`, plus what
 this session learned that those files do not hold. The progress artifact remains the
-resume point — `/implement` reads it in Step 1 — and the prompt carries the session
+resume point — `@implement` reads it in Step 1 — and the prompt carries the session
 context it lacks. `afk` slices may continue in the same session without a clear or a
 prompt.
 

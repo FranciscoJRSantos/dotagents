@@ -6,7 +6,7 @@ description: >
   flexibility. One line per finding with tag and replacement. Use when the
   user says "review for over-engineering", "what can we delete", "is this
   over-engineered", "simplify review", "yagni review", or invokes
-  /yagni-review. Complements correctness-focused /review — this one only
+  @yagni-review. Complements correctness-focused /review — this one only
   hunts complexity.
 ---
 
@@ -94,4 +94,4 @@ If there is nothing to cut, say `Lean already. Ship.` and stop.
 
 If the user wants to track deferred findings, mark them with `deferred:` comments
 in the code (format: `# deferred: <ceiling>, <upgrade path>`). Then run
-`/debt-ledger` to harvest them into a ledger.
+`@debt-ledger` to harvest them into a ledger.
