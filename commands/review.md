@@ -1,5 +1,5 @@
 ---
-description: Review changes on the current branch against main
+description: Review changes by scope: commit, branch, MR, or the default merge base
 ---
 Load the `review` skill and follow it for this scope: $ARGUMENTS
 

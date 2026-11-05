@@ -3,7 +3,7 @@ name: log-hours
 description: >
   Draft and log a day's Toggl time entries from the user's past tracking pattern and
   that day's agent sessions (Claude Code, Pi, OpenCode). Use when the user says "log
-  my hours", "fill in Toggl", "what should I log for yesterday", "/log-hours".
+  my hours", "fill in Toggl", "what should I log for yesterday", "@log-hours".
   Proposes a draft table and writes entries only after explicit confirmation.
   Entry point: @log-hours [YYYY-MM-DD | yesterday]
 ---
