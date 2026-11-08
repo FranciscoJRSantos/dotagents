@@ -83,7 +83,7 @@ Primary agents are Tab-switchable during a session. Subagents run in isolated co
 
 | Agent                 | Trigger                                         | Purpose                                                     | Mode     |
 |-----------------------|-------------------------------------------------|-------------------------------------------------------------|----------|
-| `reviewer`            | `/review`, "check my changes", "review !123"    | Code review (own branch or incoming MR). Auto-detects mode. | all      |
+| `reviewer`            | `@review`, "check my changes", "review !123"    | Code review (own branch or incoming MR). Auto-detects mode. | all      |
 | `observer`            | "@observer \<question\>", "@observer update"    | Maintain and explain codebase via codemaps                  | subagent |
 
 ---

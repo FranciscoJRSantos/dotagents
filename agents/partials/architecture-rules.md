@@ -61,7 +61,7 @@ leaky abstraction, pattern consistency, blast radius.
 
 Only objective violations (1, 2) and rules the project declared itself (3) reach
 Critical or Warning. Everything else is a judgment call and stays Suggestion BECAUSE
-`/review` blocks `/ship` on any Critical or Warning, and a debatable design opinion
+`@review` blocks `@ship` on any Critical or Warning, and a debatable design opinion
 must not stop a ship.
 
 A boundary becomes enforced when the project writes it down: one line in
