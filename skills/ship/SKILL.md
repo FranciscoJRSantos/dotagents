@@ -29,6 +29,33 @@ owns per-slice commits (including ad-hoc mode).
 
 ---
 
+## Certified Project Detection
+
+Some projects require per-slice merge requests for compliance (e.g. HITRUST E1
+certification). Detect this by checking for `.agents/project.yaml` with a
+`certified: true` flag:
+
+<!-- project-config-detection:begin — shared verbatim across @ship -->
+```bash
+# Detect certified project
+if [ -f ".agents/project.yaml" ]; then
+  CERTIFIED=$(grep -E '^certified:[[:space:]]*(true|True|TRUE)([[:space:]]*#.*)?$' .agents/project.yaml | head -1)
+  if [ -n "$CERTIFIED" ]; then
+    echo "CERTIFIED_PROJECT"
+  else
+    echo "STANDARD_PROJECT"
+  fi
+else
+  echo "STANDARD_PROJECT"
+fi
+```
+<!-- project-config-detection:end -->
+
+Use this to adjust behavior: certified projects get per-slice MRs, standard
+projects get a single MR at the end.
+
+---
+
 ## Step 1: Run Verification Suite
 
 Detect the project stack and run lint → type check → tests before anything else.
