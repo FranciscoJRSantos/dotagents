@@ -31,6 +31,12 @@ of routing); detail lives in artifacts.
 @arch TICKET → @build → @review → @ship
 ```
 
+**Certified projects (e.g. HITRUST E1):**
+```
+@arch TICKET → @build → @review → @ship
+```
+Per-slice MRs created automatically when `.agents/project.yaml` contains `certified: true`.
+
 **Session start on unfamiliar code:**
 ```
 @codemap

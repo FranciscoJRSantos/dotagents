@@ -58,6 +58,28 @@ of routing); detail lives in artifacts.
 checks → inner `reviewer` → commit; see `skills/build/SKILL.md`. Run
 `@codemap` first on an unfamiliar codebase — `@observer` keeps the map current.
 
+## Certified Projects
+
+For compliance requirements (e.g. HITRUST E1), projects can opt into per-slice
+merge requests. Create `.agents/project.yaml` with `certified: true`:
+
+```yaml
+certified: true
+```
+
+When certified:
+- `@build` creates a separate branch for each slice (`${BRANCH}-s${N}`)
+- `@ship` creates one MR per slice in dependency order, targeting the parent branch
+- Each slice can be reviewed and merged independently
+
+When not certified (default):
+- `@build` commits all slices to a single branch
+- `@ship` creates one MR at the end
+
+The detection uses a shared snippet (`<!-- project-config-detection:begin -->`)
+embedded in both `@build` and `@ship`. Only literal `true`/`True`/`TRUE` values
+are recognized; quoted strings and YAML 1.1 variants (`yes`, `on`) are not.
+
 ## Project State
 
 `.agents/STATE.md` carries cross-session context (branch, position, decisions,
