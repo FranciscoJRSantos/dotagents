@@ -96,7 +96,8 @@ is not `complete` (or the one marked `in_progress`) is the resume point. Announc
 
 > "Resuming implementation — Slices [N, M] are complete. Starting from Slice [K]."
 
-Skip directly to Step 4 (Quality Gate).
+For certified projects, run Step 2a (Create Slice Branch) before Step 4 to ensure
+the correct slice branch is checked out. Then skip directly to Step 4 (Quality Gate).
 
 If found with `status: complete` — warn:
 
@@ -150,6 +151,85 @@ Identify which slice(s) are unblocked (no blockers, or all blockers complete):
   `blocked_by` lists are satisfied
 
 Start with the first unblocked slice. All slices are AFK — proceed autonomously.
+
+### 2a: Create Slice Branch (certified projects only)
+
+For certified projects, each slice gets its own branch based on the dependency graph:
+
+```bash
+# Set SLICE_ID from Step 2 (first unblocked slice)
+# SLICE_ID=<first unblocked slice id from Step 2>
+
+# Detect certified project (shared snippet — see @ship)
+PROJECT_TYPE=$(bash -c '
+if [ -f ".agents/project.yaml" ]; then
+  CERTIFIED=$(grep -E "^certified:[[:space:]]*(true|True|TRUE)([[:space:]]*#.*)?$" .agents/project.yaml | head -1)
+  if [ -n "$CERTIFIED" ]; then
+    echo "CERTIFIED_PROJECT"
+  else
+    echo "STANDARD_PROJECT"
+  fi
+else
+  echo "STANDARD_PROJECT"
+fi
+')
+
+if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
+  # Derive epic branch by stripping -s<N> suffix (handles resume after /clear)
+  CURRENT_BRANCH=$(git branch --show-current)
+  EPIC_BRANCH=$(echo "$CURRENT_BRANCH" | sed -E 's/-s[0-9]+$//')
+  
+  # Verify we're on a valid branch (epic or slice branch)
+  if [ "$CURRENT_BRANCH" = "$EPIC_BRANCH" ] || echo "$CURRENT_BRANCH" | grep -qE "^${EPIC_BRANCH}-s[0-9]+$"; then
+    : # OK
+  else
+    echo "Error: current branch $CURRENT_BRANCH doesn't match expected pattern"
+    echo "Expected: $EPIC_BRANCH or ${EPIC_BRANCH}-s<N>"
+    exit 1
+  fi
+  
+  SLICE_BRANCH="${EPIC_BRANCH}-s${SLICE_ID}"
+  
+  # Check if branch already exists (recovery scenario)
+  if git show-ref --verify --quiet "refs/heads/$SLICE_BRANCH"; then
+    echo "Branch $SLICE_BRANCH already exists — switching to it"
+    git checkout "$SLICE_BRANCH"
+  else
+    # Determine parent branch from dependency graph
+    # Read blocked_by from kanban board for this slice
+    BLOCKED_BY_COUNT=$(yq --front-matter=process eval ".slices[] | select(.id == ${SLICE_ID}) | .blocked_by | length" .agents/artifacts/${LABEL}-kanban-board.md | head -1)
+    
+    if [ "$BLOCKED_BY_COUNT" -eq 0 ]; then
+      # No dependencies: branch from epic
+      git checkout -b "$SLICE_BRANCH" "$EPIC_BRANCH"
+      echo "Created slice branch: $SLICE_BRANCH (from $EPIC_BRANCH)"
+    elif [ "$BLOCKED_BY_COUNT" -eq 1 ]; then
+      # Single dependency: branch from parent slice's branch
+      PARENT_SLICE=$(yq --front-matter=process eval ".slices[] | select(.id == ${SLICE_ID}) | .blocked_by[0]" .agents/artifacts/${LABEL}-kanban-board.md | head -1)
+      PARENT_BRANCH="${EPIC_BRANCH}-s${PARENT_SLICE}"
+      
+      if ! git show-ref --verify --quiet "refs/heads/$PARENT_BRANCH"; then
+        echo "Error: parent branch $PARENT_BRANCH doesn't exist"
+        echo "Slice $PARENT_SLICE must be implemented first"
+        exit 1
+      fi
+      
+      git checkout -b "$SLICE_BRANCH" "$PARENT_BRANCH"
+      echo "Created slice branch: $SLICE_BRANCH (from $PARENT_BRANCH)"
+    else
+      # Multiple dependencies: not supported in certified mode
+      echo "Error: certified projects require linear dependency chains"
+      echo "Slice $SLICE_ID has $BLOCKED_BY_COUNT dependencies — only 0 or 1 supported"
+      echo "Multi-dependency slices require merge-based workflow (not yet implemented)"
+      exit 1
+    fi
+  fi
+fi
+```
+
+For non-certified projects, continue on the current branch.
+
+**Resume path:** If resuming after `/clear` or a crash, Step 2a runs before Step 4 (Quality Gate) to ensure the correct slice branch is checked out. The epic branch is derived deterministically from the current branch name.
 
 ---
 
@@ -486,6 +566,17 @@ position: build — slice <N> committed
 
 If there are more slices to implement, proceed to the next unblocked slice.
 No context clear or handoff prompt needed — all slices are AFK.
+
+For certified projects, return to the epic branch before creating the next slice's branch:
+
+```bash
+if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
+  # Derive epic branch deterministically (handles resume after /clear)
+  CURRENT_BRANCH=$(git branch --show-current)
+  EPIC_BRANCH=$(echo "$CURRENT_BRANCH" | sed -E 's/-s[0-9]+$//')
+  git checkout "$EPIC_BRANCH"
+fi
+```
 
 > "Slice <N> committed. Moving to Slice <M>."
 
