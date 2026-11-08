@@ -140,7 +140,7 @@ REVIEW_FILE=".agents/artifacts/${LABEL}-review-impl.md"
 cat "$REVIEW_FILE" 2>/dev/null
 ```
 
-`/review` records the commit it reviewed as `reviewed_head` in the artifact
+`@review` records the commit it reviewed as `reviewed_head` in the artifact
 frontmatter. Compare it with the current HEAD before deciding:
 
 ```bash
@@ -167,7 +167,7 @@ Act on the result:
 - **FRESH** — proceed.
 - **FIXUPS_ONLY** — show the commits since `reviewed_head` (they are all `fixup!`
   corrections to already-reviewed slices), then proceed.
-- **STALE** — show the commits since `reviewed_head` and ask: re-run `/review` on
+- **STALE** — show the commits since `reviewed_head` and ask: re-run `@review` on
   the new work, or proceed anyway because the changes are pre-approved.
 - **NO_HEAD** — the artifact predates freshness tracking. Treat it like STALE and
   ask.

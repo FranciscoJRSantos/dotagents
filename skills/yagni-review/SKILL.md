@@ -6,7 +6,7 @@ description: >
   flexibility. One line per finding with tag and replacement. Use when the
   user says "review for over-engineering", "what can we delete", "is this
   over-engineered", "simplify review", "yagni review", or invokes
-  @yagni-review. Complements correctness-focused /review — this one only
+  @yagni-review. Complements correctness-focused @review — this one only
   hunts complexity.
 ---
 
@@ -22,7 +22,7 @@ shorter.
 ## Scope
 
 Over-engineering and complexity **only**. Correctness bugs, security holes,
-and performance are explicitly out of scope — route them to `/review`.
+and performance are explicitly out of scope — route them to `@review`.
 
 ---
 
@@ -57,7 +57,7 @@ cat ~/.agents/partials/yagni-rules.md
 ```
 
 Assign one tag per finding. This skill lists every finding regardless of severity;
-the partial's severity table only matters when `/review` folds them into its
+the partial's severity table only matters when `@review` folds them into its
 report.
 
 ---
@@ -84,7 +84,7 @@ If there is nothing to cut, say `Lean already. Ship.` and stop.
 ## Boundaries
 
 - Scope: over-engineering and complexity only.
-- Correctness bugs, security holes, performance are out of scope — route to `/review`.
+- Correctness bugs, security holes, performance are out of scope — route to `@review`.
 - A single smoke test or `assert`-based self-check is the minimum, not bloat — never flag it.
 - Does not apply the fixes, only lists them.
 

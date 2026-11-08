@@ -1,8 +1,7 @@
 # dotagents
 
 Research-backed agent skills and subagents for software engineering workflows.
-Skills run inside OpenCode or Claude Code and are invoked with `@<skill-id>`;
-`/review` is the one overriding slash command.
+Skills run inside OpenCode or Claude Code and are invoked with `@<skill-id>`.
 
 See [AGENTS.md](AGENTS.md) for the architecture, the artifact chain and the
 `.agents/` conventions. That file is the home for the artifact-chain table; this

@@ -81,7 +81,9 @@ Load the risk classifier partial:
 cat ~/.agents/partials/risk-classifier.md 2>/dev/null
 ```
 
-Apply the classification logic from the partial:
+**Pre-check:** If the reviewer's report has any Critical or Warning findings, skip classification and escalate immediately — the artifact will have `status: has-findings` and `@ship` will block regardless.
+
+Otherwise, apply the classification logic from the partial:
 
 1. **Check learned patterns** — if `.agents/review.md` has learned false positives,
    check if any changed file matches
