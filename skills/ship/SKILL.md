@@ -301,44 +301,120 @@ the MR.
 
 ### 5c. Create the MR
 
-Build the description from `templates/mr-description.md`, filling each section
-from the plan, the diff, and the review artifact. Include the **Breaking changes**
-section only when the change actually breaks something — omit it otherwise.
-
-**GitHub** (`gh` — note `--body`/`--base`):
+First, detect whether this is a certified project:
 
 ```bash
-gh pr create \
-  --title "<TICKET>: <narrative summary>" \
-  --body "$(cat <<'EOF'
-## What
-<bullet points describing what changed>
-
-## Why
-<the reasoning, context, or problem being solved>
-
-## How
-<implementation approach — key decisions, patterns, files touched>
-
-## Test plan
-<how this was verified>
-
-## Breaking changes
-<only if applicable; omit this section otherwise>
-
-🤖 AI-assisted
-EOF
-)" \
-  --base "$TARGET_BRANCH" \
-  --assignee @me
+PROJECT_TYPE=$(bash -c '
+if [ -f ".agents/project.yaml" ]; then
+  CERTIFIED=$(grep -E "^certified:[[:space:]]*(true|True|TRUE)([[:space:]]*#.*)?$" .agents/project.yaml | head -1)
+  if [ -n "$CERTIFIED" ]; then
+    echo "CERTIFIED_PROJECT"
+  else
+    echo "STANDARD_PROJECT"
+  fi
+else
+  echo "STANDARD_PROJECT"
+fi
+')
+echo "Project type: ${PROJECT_TYPE}"
 ```
 
-**GitLab** (`glab` — note `--description`/`--target-branch`):
+#### Certified Projects: Per-Slice MRs
+
+For certified projects (e.g. HITRUST E1), create one MR per slice in dependency order:
 
 ```bash
-glab mr create \
-  --title "<TICKET>: <narrative summary>" \
-  --description "$(cat <<'EOF'
+if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
+  IMPL_FILE=".agents/artifacts/${LABEL}-impl-progress.md"
+  
+  if [ ! -f "$IMPL_FILE" ]; then
+    echo "Error: impl-progress artifact not found at $IMPL_FILE"
+    echo "Cannot determine slice boundaries for per-slice MRs"
+    exit 1
+  fi
+  
+  # Get slice count from frontmatter
+  SLICE_COUNT=$(yq --front-matter=process eval '.slices | length' "$IMPL_FILE" | head -1)
+  echo "Creating $SLICE_COUNT per-slice MRs"
+  
+  # Iterate through slices in order (1, 2, 3, ...)
+  for i in $(seq 1 $SLICE_COUNT); do
+    # Extract slice metadata
+    SLICE_ID=$(yq --front-matter=process eval ".slices[$((i-1))].id" "$IMPL_FILE" | head -1)
+    SLICE_TITLE=$(yq --front-matter=process eval ".slices[$((i-1))].title" "$IMPL_FILE" | head -1)
+    SLICE_COMMIT=$(yq --front-matter=process eval ".slices[$((i-1))].commit" "$IMPL_FILE" | head -1)
+    
+    # Determine slice branch name
+    SLICE_BRANCH="${BRANCH}-s${SLICE_ID}"
+    
+    # Determine parent branch (epic branch for slice 1 or slices with no deps)
+    # For simplicity, all slices target the epic branch (BRANCH without -s<N>)
+    PARENT_BRANCH=$(echo "$BRANCH" | sed -E 's/-s[0-9]+$//')
+    
+    echo "Creating MR for Slice $SLICE_ID: $SLICE_TITLE"
+    echo "  Branch: $SLICE_BRANCH → $PARENT_BRANCH"
+    
+    # Push the slice branch
+    git push -u origin "$SLICE_BRANCH" || {
+      echo "Error: failed to push $SLICE_BRANCH"
+      exit 1
+    }
+    
+    # Create MR with slice-specific title
+    MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
+    
+    # GitHub
+    if [ "$FORGE" = "github" ]; then
+      gh pr create \
+        --title "$MR_TITLE" \
+        --body "$(cat <<EOF
+## Slice ${SLICE_ID}: ${SLICE_TITLE}
+
+Part of ${LABEL} implementation.
+
+🤖 AI-assisted
+EOF
+)" \
+        --head "$SLICE_BRANCH" \
+        --base "$PARENT_BRANCH" \
+        --assignee @me
+    # GitLab
+    elif [ "$FORGE" = "gitlab" ]; then
+      glab mr create \
+        --title "$MR_TITLE" \
+        --description "$(cat <<EOF
+## Slice ${SLICE_ID}: ${SLICE_TITLE}
+
+Part of ${LABEL} implementation.
+
+🤖 AI-assisted
+EOF
+)" \
+        --source-branch "$SLICE_BRANCH" \
+        --target-branch "$PARENT_BRANCH" \
+        --assignee @me
+    fi
+  done
+  
+  echo "All per-slice MRs created"
+fi
+```
+
+#### Standard Projects: Single MR
+
+For non-certified projects, create a single MR as before:
+
+```bash
+if [ "$PROJECT_TYPE" = "STANDARD_PROJECT" ]; then
+  # Build the description from templates/mr-description.md, filling each section
+  # from the plan, the diff, and the review artifact. Include the **Breaking changes**
+  # section only when the change actually breaks something — omit it otherwise.
+
+  # GitHub (gh — note --body/--base):
+  if [ "$FORGE" = "github" ]; then
+    gh pr create \
+      --title "<TICKET>: <narrative summary>" \
+      --body "$(cat <<'EOF'
 ## What
 <bullet points describing what changed>
 
@@ -357,15 +433,42 @@ glab mr create \
 🤖 AI-assisted
 EOF
 )" \
-  --target-branch "$TARGET_BRANCH" \
-  --assignee @me
+      --base "$TARGET_BRANCH" \
+      --assignee @me
+  # GitLab (glab — note --description/--target-branch):
+  elif [ "$FORGE" = "gitlab" ]; then
+    glab mr create \
+      --title "<TICKET>: <narrative summary>" \
+      --description "$(cat <<'EOF'
+## What
+<bullet points describing what changed>
+
+## Why
+<the reasoning, context, or problem being solved>
+
+## How
+<implementation approach — key decisions, patterns, files touched>
+
+## Test plan
+<how this was verified>
+
+## Breaking changes
+<only if applicable; omit this section otherwise>
+
+🤖 AI-assisted
+EOF
+)" \
+      --target-branch "$TARGET_BRANCH" \
+      --assignee @me
+  fi
+  
+  Show the MR URL when done.
+fi
 ```
 
 **If the forge is unknown or its CLI is missing:** do not fail the ship. Report
 the branch and detected target branch, then tell the user to open the MR manually
 against `$TARGET_BRANCH`.
-
-Show the MR URL when done.
 
 ---
 
