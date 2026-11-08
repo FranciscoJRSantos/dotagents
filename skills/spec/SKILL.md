@@ -1,12 +1,12 @@
 ---
-name: grill-me
+name: spec
 description: >
   Interview the user relentlessly about a plan or design until reaching shared
   understanding, resolving each branch of the decision tree. Produces a decision
-  log artifact consumable by @plan. Invoke with "@grill-me [topic]".
+  log artifact consumable by @arch. Invoke with "@spec [topic]".
 ---
 
-# Grill-Me Skill
+# Spec Skill
 
 Stress-test a plan or design through adversarial conversation. Walks the
 decision tree depth-first, resolving dependencies between decisions one by
@@ -14,18 +14,31 @@ one. Always explores the codebase before asking a question if the answer is
 knowable from code.
 
 Produces a decision log artifact (`.agents/artifacts/grill-<slug>-decisions.md`)
-that `@plan` can consume downstream.
+that `@arch` can consume downstream.
+
+---
+
+## Conversation Density
+
+**Conversation is routing only.** Keep conversation output to 1-3 lines per decision.
+Write all detail to artifacts. The user reads conversation for decisions, drills into
+artifacts for detail.
+
+- Decision tree → artifact
+- Resolved decisions → artifact
+- Full rationale → artifact
+- Conversation: "Decision tree written to `<path>`. N decisions resolved. Review or say 'approved'."
 
 ---
 
 ## Step 1: Gather Context
 
-Ask the user what they want to grill:
+Ask the user what they want to spec:
 
 > "What plan or design do you want me to stress-test? Share the context, a
 > doc, a quick sketch, or just describe what you're thinking about."
 
-If the user provided a topic inline (e.g. `@grill-me add rate limiting to the API gateway`), use that as the starting context and say you'll explore the codebase for relevant details.
+If the user provided a topic inline (e.g. `@spec add rate limiting to the API gateway`), use that as the starting context and say you'll explore the codebase for relevant details.
 
 If the shared context references existing code, Jira tickets, or ADRs, explore them first to ground the conversation:
 
@@ -89,35 +102,9 @@ and ask whether to explore them now or defer.
 
 ## Step 4: Summarize & Confirm
 
-Once all nodes are walked (or explicitly deferred), present the full picture:
+Once all nodes are walked (or explicitly deferred), present the full picture in the artifact.
 
-```
-## Resolved Decisions
-
-### D1: Persistence strategy → **Redis with TTL keys**
-  Rationale: already in stack, used for sessions
-  Informs: D2, D3
-
-### D2: Algorithm → **Sliding window log**
-  Rationale: more precise than fixed window for burst control
-  Informs: D3
-
-### D3: Rate limit key → **Per-user (API key)**
-  Rationale: business requirement from stakeholders
-  Informs: D4
-
-### D4: Error response → **429 + Retry-After header + JSON body**
-  Rationale: standard, client-friendly
-
-## Open Questions
-- (none)
-
-## Blocked Decisions
-- (none)
-```
-
-Ask: *"Does this capture everything? Say 'approved' to save the decision log,
-or tell me what to change."*
+Ask: *"Decision log ready at `<path>`. N decisions resolved. Review or say 'approved' to save."*
 
 ---
 
@@ -151,14 +138,14 @@ mkdir -p .agents/artifacts
 ---
 artifact: grill-decisions
 slug: <slug>
-skill: grill-me
+skill: spec
 created: <ISO 8601 timestamp>
 ticket: <PROJ-123 or null>
 ---
 
 ## Context
 
-<what was being grilled — user's original description>
+<what was being specced — user's original description>
 
 ## Resolved Decisions
 
@@ -184,16 +171,16 @@ ticket: <PROJ-123 or null>
 
 Based on the resolved decisions, suggest one or more of:
 
-- `@plan` — to create an implementation plan from resolved decisions
+- `@arch` — to create an implementation plan from resolved decisions
 - Post to Jira via MCP — to turn these decisions into a ticket
 ```
 
 The log is local working state, not the record. Each decision must reach the
 commit message of the work it drives — that is where the "why" lives on.
 
-Set `ticket:` to the Jira key when the grilled work maps to a ticket, so
-`@plan <KEY>` can find this log; use `ticket: null` otherwise. `@plan
-grill-<slug>` reads it without any Jira access.
+Set `ticket:` to the Jira key when the specced work maps to a ticket, so
+`@arch <KEY>` can find this log; use `ticket: null` otherwise. `@arch
+<slug>` reads it without any Jira access.
 
 End with a concise summary confirming the artifact was saved.
 
@@ -210,7 +197,7 @@ End with a concise summary confirming the artifact was saved.
   as unresolved if the user genuinely cannot answer yet.
 - **Follow dependencies** — if a decision blocks others, flag it. If an
   unresolved question blocks downstream decisions, note that explicitly.
-- **No Jira writes** — grill-me produces a decision artifact, not a ticket.
+- **No Jira writes** — spec produces a decision artifact, not a ticket.
   Post to Jira via MCP after the session.
 - **Decisions live in commits** — the log is local working state; every resolved
   decision must reach the commit message of the work it drives.

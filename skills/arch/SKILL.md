@@ -1,19 +1,35 @@
 ---
-name: plan
+name: arch
 description: >
   Generates a type-aware implementation plan with Kanban/DAG vertical slices and
   presents it for approval before writing artifacts. Sources the plan from a Jira
-  ticket (@plan PROJ-123) or from a local @grill-me decision log (@plan grill-<slug>,
-  or @plan with no argument to pick from a list). Produces both a plan artifact and
+  ticket (@arch PROJ-123) or from a local @spec decision log (@arch <slug>,
+  or @arch with no argument to pick from a list). Produces both a plan artifact and
   a kanban-board artifact.
-  Entry point: @plan PROJ-123 | @plan grill-<slug>
+  Entry point: @arch PROJ-123 | @arch <slug>
 ---
 
-# Plan Skill
+# Arch Skill
 
 Produces a structured, type-aware implementation plan with a Kanban board of
-vertical slices, sourced either from a Jira ticket or from a local `@grill-me`
+vertical slices, sourced either from a Jira ticket or from a local `@spec`
 decision log. Nothing is written to Jira until the user explicitly approves.
+
+**All slices default to `mode: afk`** — autonomous execution with no per-slice
+human gates. The agent runs end-to-end, only stopping when risk classification
+requires human review (at `@review`).
+
+---
+
+## Conversation Density
+
+**Conversation is routing only.** Keep conversation output to 1-3 lines per decision.
+Write all detail to artifacts. The user reads conversation for decisions, drills into
+artifacts for detail.
+
+- Plan text → artifact
+- Kanban board → artifact
+- Conversation: "Plan written to `<path>`. N slices, M dependencies. Review or say 'approved'."
 
 ---
 
@@ -28,17 +44,17 @@ decision log. Nothing is written to Jira until the user explicitly approves.
 
 ## Step 1: Determine the Source
 
-`@plan` takes one of three inputs:
+`@arch` takes one of three inputs:
 
 | Invocation | Source | Jira access |
 |---|---|---|
-| `@plan PROJ-123` | the Jira ticket | fetch + post |
-| `@plan grill-<slug>` | `.agents/artifacts/grill-<slug>-decisions.md` | none |
-| `@plan` | pick from the grill logs on disk | none |
+| `@arch PROJ-123` | the Jira ticket | fetch + post |
+| `@arch <slug>` | `.agents/artifacts/grill-<slug>-decisions.md` | none |
+| `@arch` | pick from the decision logs on disk | none |
 
 ### 1a. Jira key
 
-Load only the grill logs that name this ticket — never glob for unrelated logs:
+Load only the decision logs that name this ticket — never glob for unrelated logs:
 
 ```bash
 KEY=PROJ-123
@@ -69,12 +85,12 @@ Extract:
 - Acceptance criteria (explicit or implied)
 - Any linked tickets or context
 
-### 1b. Grill log
+### 1b. Decision log
 
 ```bash
 SLUG=<slug>
 LOG=".agents/artifacts/grill-${SLUG}-decisions.md"
-[ -f "$LOG" ] || { echo "No grill log at $LOG"; exit 1; }
+[ -f "$LOG" ] || { echo "No decision log at $LOG"; exit 1; }
 cat "$LOG"
 ```
 
@@ -95,7 +111,7 @@ If there are none, ask for a Jira key and continue with 1a.
 
 ## Step 2: Detect Ticket Type
 
-Determine the type from the ticket content. In grill mode there is no Jira issue
+Determine the type from the ticket content. In decision log mode there is no Jira issue
 type — infer the plan structure from the decision log's scope, or ask the user
 which structure (ML experiment, API QoL, CI/CD, Feature, Epic) fits best.
 
@@ -324,10 +340,8 @@ Group the module interfaces from Step 4 into slices by dependency order:
 
 **Slice rules:**
 - Each acceptance criterion → at least one slice that addresses it
-- Every slice defaults to `mode: hitl` — it stops at the gate for human review
-- `mode: afk` is only for work that can run unattended: pure refactors, boilerplate,
-  or changes fully covered by tests with cheap failure modes. Justify every `afk`
-  slice in its `description`; when in doubt, use `hitl`
+- **Every slice defaults to `mode: afk`** — autonomous execution, no per-slice human gates
+- `mode: hitl` is only for work that explicitly requires human review before proceeding. Justify every `hitl` slice in its `description`; when in doubt, use `afk`
 - Slices with no blocking dependencies can run concurrently — that is derivable
   from `blocked_by: []`, so it needs no separate tag
 - Slices that block others should have their `blocks` field set
@@ -339,7 +353,7 @@ slices:
   - id: 1
     title: "Define types and schemas"
     description: "Core data types that all downstream modules depend on"
-    mode: hitl
+    mode: afk
     blocks: [2, 3]
     blocked_by: []
     module_interfaces:
@@ -349,7 +363,7 @@ slices:
   - id: 2
     title: "Implement business logic"
     description: "Pure domain logic for item processing"
-    mode: hitl
+    mode: afk
     blocks: [5]
     blocked_by: [1]
     module_interfaces:
@@ -359,7 +373,7 @@ slices:
   - id: 3
     title: "Add API endpoints"
     description: "REST endpoints for CRUD operations"
-    mode: hitl
+    mode: afk
     blocks: [5]
     blocked_by: [1]
     module_interfaces:
@@ -398,8 +412,8 @@ explicitly N/A with a stated reason). Feature, API QoL and Epic plans skip this
 gate — their acceptance criteria are testable conditions, not numeric thresholds.
 The prompt names what approval does in the current mode:
 
-- **Jira key:** *"Does this plan look right? Say 'approved' to post it as a Jira comment and write artifacts, or tell me what to adjust."*
-- **Grill log:** *"Does this plan look right? Say 'approved' to write the plan and kanban artifacts, or tell me what to adjust."*
+- **Jira key:** *"Plan written to `<path>`. N slices. Say 'approved' to post as Jira comment, or tell me what to adjust."*
+- **Decision log:** *"Plan written to `<path>`. N slices. Say 'approved' to write artifacts, or tell me what to adjust."*
 
 Do not write anything yet.
 
@@ -412,7 +426,7 @@ revise the plan and show the updated version.
 
 ### 8a. Write to Jira (Jira key mode only)
 
-Skip this step entirely in grill mode — there is no Jira ticket to comment on.
+Skip this step entirely in decision log mode — there is no Jira ticket to comment on.
 
 First check available flags:
 
@@ -428,7 +442,7 @@ substitution, so fall back to its deployed path:
 ```bash
 # Resolve this skill's directory
 SKILL_DIR="${CLAUDE_SKILL_DIR}"
-[ -n "$SKILL_DIR" ] || SKILL_DIR="$HOME/.config/opencode/skills/plan"
+[ -n "$SKILL_DIR" ] || SKILL_DIR="$HOME/.config/opencode/skills/arch"
 
 # Save the plan markdown to a temp file
 PLAN_MD=$(mktemp)
@@ -468,7 +482,7 @@ mkdir -p .agents
 mkdir -p .agents/artifacts
 ```
 
-<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
@@ -476,27 +490,27 @@ LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
 <!-- artifact-label:end -->
 
 Write `.agents/artifacts/<LABEL>-plan.md`. `ticket` is the Jira key argument in
-Jira mode and `null` in grill mode; `status` is `posted` in Jira mode and `active`
-in grill mode:
+Jira mode and `null` in decision log mode; `status` is `posted` in Jira mode and `active`
+in decision log mode:
 
 ```yaml
 ---
 artifact: plan
 ticket: <Jira key or null>
-skill: plan
+skill: arch
 created: <ISO 8601 timestamp>
-status: posted        # or: active in grill mode
+status: posted        # or: active in decision log mode
 ---
 ```
 
 Followed by the full plan content.
 
-In grill mode, mark the source log as consumed so the same decisions are not
+In decision log mode, mark the source log as consumed so the same decisions are not
 planned twice:
 
 ```bash
 LOG=".agents/artifacts/grill-<slug>-decisions.md"
-grep -q '^consumed_by:' "$LOG" || sed -i "/^skill: grill-me/a consumed_by: ${LABEL}-plan.md" "$LOG"
+grep -q '^consumed_by:' "$LOG" || sed -i "/^skill: spec/a consumed_by: ${LABEL}-plan.md" "$LOG"
 ```
 
 ### 8c. Write Kanban Board Artifact
@@ -507,14 +521,14 @@ Write `.agents/artifacts/<LABEL>-kanban-board.md`:
 ---
 artifact: kanban-board
 ticket: <Jira key or null>
-skill: plan
+skill: arch
 created: <ISO 8601 timestamp>
 status: active
 slices:
   - id: 1
     title: <slice title>
     description: <what this slice delivers>
-    mode: hitl          # or: afk — justify every afk in the description
+    mode: afk          # or: hitl — justify every hitl in the description
     blocks: [<slice IDs>]
     blocked_by: [<slice IDs>]
     module_interfaces:
@@ -526,9 +540,9 @@ slices:
 ---
 ```
 
-This artifact is read by `@implement` to know which slice to work on and to resume.
+This artifact is read by `@build` to know which slice to work on and to resume.
 
-Run `/clear` before `@implement` to start implementation in a fresh context window.
+Run `/clear` before `@build` to start implementation in a fresh context window.
 
 ---
 
@@ -538,7 +552,7 @@ A good plan should:
 - Use exact values from the ticket (metrics, thresholds, criteria) — never invent them
 - Be executable: someone unfamiliar with the ticket can follow the steps
 - Be proportionate: a small QoL change doesn't need 5 pages; an ML experiment does
-- Surface risks or ambiguities the ticket author may not have considered
+- Surface risks or ambiguities the ticket author may have considered
 - Leave the "out of scope" section explicit, not implied
 - Decompose into vertical slices where each slice delivers something testable
-- Set each slice's mode (default `hitl`; justify every `afk`) for correct routing during implementation
+- **Default every slice to `mode: afk`** for autonomous execution; justify every `hitl` slice

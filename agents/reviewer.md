@@ -37,7 +37,7 @@ Check the invocation context:
     the working tree, including untracked files. This is the final review before
     `@ship`.
   - **slice** — only the current slice: `git diff HEAD` plus untracked files.
-    `@implement` passes this for its inner review.
+    `@build` passes this for its inner review.
 
 ## PR Review Mode (teammate's MR)
 
@@ -93,7 +93,7 @@ git ls-files --others --exclude-standard
 
 ### Load plan artifact (if available)
 
-<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}

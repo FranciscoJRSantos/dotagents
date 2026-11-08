@@ -194,7 +194,7 @@ lint-agents:
 	tmp=$$(mktemp -d); \
 	ref=""; \
 	label_ok=true; \
-	for f in "$(GLOBAL_SKILLS)/plan/SKILL.md" "$(GLOBAL_SKILLS)/implement/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(AGENTS_SRC)/reviewer.md"; do \
+	for f in "$(GLOBAL_SKILLS)/arch/SKILL.md" "$(GLOBAL_SKILLS)/build/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(AGENTS_SRC)/reviewer.md"; do \
 		out="$$tmp/$$(printf '%s' "$$f" | tr '/' '_')"; \
 		sed -n '/artifact-label:begin/,/artifact-label:end/p' "$$f" > "$$out"; \
 		if [ ! -s "$$out" ]; then \
@@ -216,7 +216,7 @@ lint-agents:
 	tmp=$$(mktemp -d); \
 	ref=""; \
 	gi_ok=true; \
-	for f in "$(GLOBAL_SKILLS)/grill-me/SKILL.md" "$(GLOBAL_SKILLS)/plan/SKILL.md" "$(GLOBAL_SKILLS)/implement/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(GLOBAL_SKILLS)/codemap/SKILL.md" "$(GLOBAL_SKILLS)/handoff/SKILL.md" "$(GLOBAL_SKILLS)/learn/SKILL.md" "$(GLOBAL_SKILLS)/debt-ledger/SKILL.md" "$(AGENTS_SRC)/observer.md"; do \
+	for f in "$(GLOBAL_SKILLS)/spec/SKILL.md" "$(GLOBAL_SKILLS)/arch/SKILL.md" "$(GLOBAL_SKILLS)/build/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(GLOBAL_SKILLS)/codemap/SKILL.md" "$(GLOBAL_SKILLS)/handoff/SKILL.md" "$(GLOBAL_SKILLS)/learn/SKILL.md" "$(GLOBAL_SKILLS)/debt-ledger/SKILL.md" "$(AGENTS_SRC)/observer.md"; do \
 		out="$$tmp/$$(printf '%s' "$$f" | tr '/' '_')"; \
 		sed -n '/agents-gitignore:begin/,/agents-gitignore:end/p' "$$f" > "$$out"; \
 		if [ ! -s "$$out" ]; then \

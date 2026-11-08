@@ -1,8 +1,7 @@
 # Agents Guide: dotagents
 
 Skills run in the main conversation and write artifacts, invoked with
-`@<skill-id>`; agents are isolated subagents that return findings only. `/review`
-is the single slash command (it overrides the built-in).
+`@<skill-id>`; agents are isolated subagents that return findings only.
 
 ```
 skills/<name>/SKILL.md   ← one skill per file
@@ -28,28 +27,35 @@ Personal global rules live at `global/AGENTS.md` (gitignored; template
 
 Skills hand context to each other through `.agents/artifacts/`:
 
-| Artifact                    | Written by   | Read by               |
-|-----------------------------|--------------|-----------------------|
-| `grill-<slug>-decisions.md` | `@grill-me`  | `@plan`               |
-| `<LABEL>-plan.md`           | `@plan`      | `/review`, `@ship`    |
-| `<LABEL>-kanban-board.md`   | `@plan`      | `@implement`          |
-| `<LABEL>-review-impl.md`    | `/review`    | `@ship`               |
-| `<LABEL>-impl-progress.md`  | `@implement` | `@implement` (resume) |
+| Artifact                    | Written by  | Read by              |
+|-----------------------------|-------------|----------------------|
+| `grill-<slug>-decisions.md` | `@spec`     | `@arch`              |
+| `<LABEL>-plan.md`           | `@arch`     | `@review`, `@ship`   |
+| `<LABEL>-kanban-board.md`   | `@arch`     | `@build`             |
+| `<LABEL>-review-impl.md`    | `@review`   | `@ship`              |
+| `<LABEL>-impl-progress.md`  | `@build`    | `@build` (resume)    |
 
 `<LABEL>` is the ticket key when the branch carries one, otherwise the branch
 name with `/` replaced by `-`. Schemas live with their owners: the kanban/plan
-shape in `skills/plan/SKILL.md`, impl-progress in `skills/implement/SKILL.md`,
-the grill log in `skills/grill-me/SKILL.md`, the review report in
-`~/.agents/partials/review-rules.md`.
+shape in `skills/arch/SKILL.md`, impl-progress in `skills/build/SKILL.md`,
+the decision log in `skills/spec/SKILL.md`, the review report in
+`~/.agents/partials/review-rules.md`, risk classification in
+`~/.agents/partials/risk-classifier.md`.
 
 ## Workflow
 
 ```
-@grill-me → @plan → @implement → /review → @ship
+@spec → @arch → @build → @review → @ship
 ```
 
-`@implement` runs each vertical slice through Explore → RED → GREEN → REFACTOR →
-checks → inner `reviewer` → gate → commit; see `skills/implement/SKILL.md`. Run
+This is the **software factory model**: humans own specs/plans (upstream), agents
+own implementation/review (downstream). `@build` runs all slices autonomously —
+no per-slice human gates. `@review` is the HITL point, where risk classification
+determines whether human review is needed. Conversation output is terse (1-3 lines
+of routing); detail lives in artifacts.
+
+`@build` runs each vertical slice through Explore → RED → GREEN → REFACTOR →
+checks → inner `reviewer` → commit; see `skills/build/SKILL.md`. Run
 `@codemap` first on an unfamiliar codebase — `@observer` keeps the map current.
 
 ## Project State

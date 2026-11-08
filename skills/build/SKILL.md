@@ -1,28 +1,43 @@
 ---
-name: implement
+name: build
 description: >
-  Vertical-slice implementation with TDD inside each slice. Reads the plan and
-  kanban-board artifacts to determine which slice to implement. Each slice
-  crosses all layers (data → pure → edge → UI → integration), follows
-  Red-Green-Refactor, passes an inner review, and ends in its own commit.
-  Works from a plan, or in ad-hoc mode with no plan as a single reviewed slice.
-  Clear context between slices. Use this skill whenever the user says
-  "implement", "start coding", "proceed with implementation", "@implement", or
-  wants to begin implementation.
-  Entry point: @implement
+  Autonomous vertical-slice implementation. Reads the plan and kanban-board
+  artifacts to determine which slice to implement. Each slice crosses all layers
+  (data → pure → edge → UI → integration), follows Red-Green-Refactor, passes
+  an inner review, and ends in its own commit. All slices run AFK — no per-slice
+  human gates. The agent runs end-to-end autonomously. Works from a plan, or in
+  ad-hoc mode with no plan as a single reviewed slice. Use this skill whenever
+  the user says "implement", "start coding", "proceed with implementation",
+  "@build", or wants to begin implementation.
+  Entry point: @build
 ---
 
-# Implement Skill
+# Build Skill
 
-Guides implementation one vertical slice at a time using the Kanban board artifact
+Autonomous implementation one vertical slice at a time using the Kanban board artifact
 as the source of truth. Each slice delivers something testable, crosses all layers,
 passes an inner `reviewer` pass, and is committed on its own. TDD is built into the
-loop (Red → Green → Refactor). The `impl-progress` artifact carries the state
-between slices, so `/clear` never loses the resume point.
+loop (Red → Green → Refactor).
+
+**All slices are AFK** — no per-slice human gates. The agent runs end-to-end,
+committing each slice autonomously. The only HITL point is `@review` at the end,
+where risk classification determines whether human review is needed.
 
 With no plan artifacts, it runs in **ad-hoc mode**: one goal, one acceptance
 criterion, one reviewed commit. The baseline — tests, inner review, real commit —
 is the same; only the plan and kanban are skipped.
+
+---
+
+## Conversation Density
+
+**Conversation is routing only.** Keep conversation output to 1-3 lines per slice.
+Write all detail to artifacts. The user reads conversation for decisions, drills into
+artifacts for detail.
+
+- Slice progress → artifact (board.org)
+- TDD details → artifact
+- Conversation: "Slice 1/N → commit abc1234 → next"
 
 ---
 
@@ -31,15 +46,14 @@ is the same; only the plan and kanban are skipped.
 - Never skip the quality gate (Step 4). If the target language has no test framework or
   type checker, install or configure one before writing any production code.
 - When exploring the module before the Red phase, read the relevant files directly. One focused exploration pass per slice.
-- `impl-progress` is the resume point. A `/clear` after a `hitl` gate is recommended,
-  not required; `afk` slices can chain in one session.
+- `impl-progress` is the resume point. A `/clear` after a slice is recommended
+  for context hygiene; AFK slices can chain in one session.
 - Pull coding conventions from project AGENTS.md at the start of each slice (Step 4).
   Do NOT load them in Step 1 — only the slice's own conventions are needed.
-- A slice's `mode` drives the gates: `hitl` (the default) stops for a go on the brief
-  before the Red phase (Step 5) and for human review before the commit; `afk`
-  may run unattended only when checks are green and the inner review found no Critical
-  items, otherwise it degrades to a `hitl` gate.
-- If the last slice completes, mark the artifact as complete and recommend `/review`.
+- **All slices are AFK** — the agent runs end-to-end without stopping. Inner reviewer
+  runs, checks run, commit happens, move to next slice. The only stop is `@review`
+  at the end, where risk classification determines escalation.
+- If the last slice completes, mark the artifact as complete and recommend `@review`.
 - Bug fix = root cause, not symptom. Before editing, grep every caller of the function you
   touch. Fix the shared function once — one guard there is a smaller diff than one per caller,
   and patching only the path the ticket names leaves a sibling caller still broken.
@@ -51,7 +65,7 @@ is the same; only the plan and kanban are skipped.
 Resolve the artifact label from the current branch name — the ticket key when the
 branch carries one, otherwise the branch name with `/` replaced by `-`:
 
-<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
@@ -86,14 +100,14 @@ Skip directly to Step 4 (Quality Gate).
 
 If found with `status: complete` — warn:
 
-> "Implementation appears already complete. Run `/review` to review the changes,
+> "Implementation appears already complete. Run `@review` to review the changes,
 > or read the plan and progress artifacts for a full overview."
 
 ---
 
 ## Ad-hoc Mode (no plan)
 
-For a quick fix with no `@plan` artifacts, run a single `hitl` slice through the
+For a quick fix with no `@arch` artifacts, run a single slice through the
 full loop. Take a one-sentence ticket from the branch label and ask for exactly two
 things:
 
@@ -107,7 +121,7 @@ Then:
    whose `title` is the goal, `status: in_progress`, `commit: null`.
 2. Use the acceptance criterion where the loop would otherwise use the kanban's
    `module_interfaces`.
-3. Run Steps 4–14 with slice `N = 1` and `mode: hitl`.
+3. Run Steps 4–14 with slice `N = 1`.
 
 Ad-hoc mode skips only the plan and kanban artifacts. It never skips the quality
 gate, TDD, the inner `reviewer` pass, or the per-slice commit.
@@ -124,8 +138,8 @@ Show the slice dependency graph to the user. The board carries no per-slice stat
 
 | Slice | Title | Blocks | Blocked By | Mode | Status |
 |-------|-------|--------|------------|------|--------|
-| 1     | ...   | [2]    | []         | hitl | pending |
-| 2     | ...   | [3]    | [1]        | hitl | pending |
+| 1     | ...   | [2]    | []         | afk  | pending |
+| 2     | ...   | [3]    | [1]        | afk  | pending |
 | 3     | ...   | []     | [2]        | afk  | pending |
 ```
 
@@ -135,10 +149,7 @@ Identify which slice(s) are unblocked (no blockers, or all blockers complete):
 - **Parallel candidates:** Slices [M, O] can run in parallel when their
   `blocked_by` lists are satisfied
 
-Ask the user which slice to start with:
-
-> "The first unblocked slice is Slice [N]: [title]. Shall I start there, or skip to
-> a different unblocked slice?"
+Start with the first unblocked slice. All slices are AFK — proceed autonomously.
 
 ---
 
@@ -166,7 +177,7 @@ display-only:
 ---
 artifact: impl-progress
 ticket: <LABEL>
-skill: implement
+skill: build
 status: in_progress
 created: <ISO 8601 timestamp>
 current_slice: <first slice id>
@@ -185,8 +196,8 @@ slices:
 
 | Slice | Title | Mode | Status | Commit |
 |-------|-------|------|--------|--------|
-| 1 | <title> | hitl | pending | — |
-| 2 | <title> | hitl | pending | — |
+| 1 | <title> | afk | pending | — |
+| 2 | <title> | afk | pending | — |
 ```
 
 `status` values: `pending`, `in_progress`, `complete`, `skipped`.
@@ -266,24 +277,7 @@ the Kanban board:
 - Search for existing test files that cover the module
 - Note existing type definitions, function signatures, and conventions
 
-### Slice Brief — `hitl` only
-
-Before the Red phase of a `hitl` slice, describe what the slice will do and wait for
-a go. `afk` slices skip the brief.
-
-```
-## Slice <N>: <title>   [mode: hitl]
-
-- Goal: <what the slice delivers, one sentence>
-- Steps: <ordered list — tests to write, files to change>
-- Live or remote actions: <deploy, apply, SSH writes, cloud API calls — or "none">
-- Checks: <the commands Step 9 will run>
-```
-
-> "That is the plan for Slice <N>. Go, or tell me what to adjust?"
-
-**Do not write tests or code until the user says go.** A go on the brief covers the
-local work only: confirm each live or remote action again right before running it.
+No brief gate — proceed directly to RED phase.
 
 ---
 
@@ -396,7 +390,7 @@ Report results:
 
 ## Step 10: Inner Review
 
-Spawn the `reviewer` subagent on the current slice, before the gate:
+Spawn the `reviewer` subagent on the current slice, before the commit:
 
 > `@reviewer slice`
 
@@ -412,54 +406,7 @@ require another round.
 
 ---
 
-## Step 11: GATE — Slice Approval
-
-Present the slice summary. For a `hitl` slice one approval covers both the review and
-the commit:
-
-```
-## Slice <N>: <title>   [mode: hitl|afk]
-
-### What was built
-- [file 1]: <what was added/changed>
-- [file 2]: <what was added/changed>
-
-### Test evidence
-- RED: `<test name>` — failed: <one-line reason>
-- GREEN: <test command> — <N> passed
-- REFACTOR: <what changed, or "none">
-- Checks: lint <pass/fail> · types <pass/fail> · tests <N> passed>
-
-### Inner review
-- Rounds: <N>
-- Fixed: <Critical/Warning items fixed, or "none">
-- Leftovers: <anything not fixed, with reason; otherwise "none">
-
-### Deviations
-- [none / list of Rule N auto-fixes applied]
-
-### Proposed commit
-<LABEL>: <what this slice delivers>
-
-<why this change is needed — the reasoning, context, or problem being solved.
-Pull from the plan's context/rationale. Always present, even for a small change.>
-
-Co-Authored-By: AI Assistant
-```
-
-Gate conditions:
-- **`mode: hitl`** (the default) — stop and request approval:
-  > "Slice <N> is `hitl` — review the summary and commit message; approve to commit, or tell me what to adjust."
-- **`mode: afk`** — when checks are green and no Critical item remains, commit
-  without waiting and continue to the next unblocked slice. Otherwise degrade to
-  the `hitl` gate above.
-- **No mode field** — treat it as `hitl` (default).
-
-**Do not commit a `hitl` slice until the user approves.**
-
----
-
-## Step 12: Commit the Slice
+## Step 11: Commit the Slice
 
 Stage the slice's files explicitly (never `git add -A`), then commit with the
 approved message. The subject is the label resolved in Step 1:
@@ -480,7 +427,7 @@ EOF
 
 ### Corrections to an earlier slice
 
-If a later slice, the inner review, or the final `/review` corrects work from an
+If a later slice, the inner review, or the final `@review` corrects work from an
 earlier slice, commit the correction as a fixup against that slice's commit sha
 (recorded in `impl-progress`):
 
@@ -493,7 +440,7 @@ commit per slice.
 
 ---
 
-## Step 13: Update Progress Artifact
+## Step 12: Update Progress Artifact
 
 Record the slice's `status` and `commit` in the frontmatter and advance
 `current_slice`. Use `--front-matter=process` so `yq` leaves the markdown body
@@ -524,7 +471,7 @@ Also update `.agents/STATE.md`:
 ---
 last_updated: <NOW>
 current_branch: <BRANCH>
-position: implement — slice <N> committed
+position: build — slice <N> committed
 ---
 ## Decisions
 - <decisions made during this slice>
@@ -535,34 +482,16 @@ position: implement — slice <N> committed
 
 ---
 
-## Step 14: Clear and Resume
+## Step 13: Continue to Next Slice
 
-If there are more slices to implement:
+If there are more slices to implement, proceed to the next unblocked slice.
+No context clear or handoff prompt needed — all slices are AFK.
 
-> "Slice <N> is committed. Run `/clear` to start fresh, then paste the prompt below."
-
-End with a copy-pasteable handoff prompt for the next slice, in one fenced block:
-
-```
-@implement Slice <M>: <title>
-
-Read first: <impl-progress, kanban, STATE.md, conventions.md, the slice's module files>
-Scope: <what Slice <M> delivers, and what it must not touch>
-Live state: <what is deployed or applied now, and anything changed by hand>
-Carried-over deferrals: <open items from earlier slices that land in or affect Slice <M>>
-Working rules: <the session's corrections and conventions that still apply>
-Checks: <the commands Step 9 runs>
-```
-
-Fill it from `impl-progress`, `.agents/STATE.md` and `.agents/conventions.md`, plus what
-this session learned that those files do not hold. The progress artifact remains the
-resume point — `@implement` reads it in Step 1 — and the prompt carries the session
-context it lacks. `afk` slices may continue in the same session without a clear or a
-prompt.
+> "Slice <N> committed. Moving to Slice <M>."
 
 ---
 
-## Step 15: All Slices Complete
+## Step 14: All Slices Complete
 
 When the last slice is done:
 
@@ -587,10 +516,8 @@ Slices completed:
 
 Checks: ✅ passing  (or: ⚠️  see failures above)
 
-Next step: run /review for a severity-grouped code review against main.
+Next step: run @review for a risk-routed code review.
 ```
-
-Run `/clear` before `/review` to keep review context focused.
 
 ---
 
@@ -611,7 +538,7 @@ Document auth gates as "normal flow" in the slice gate summary, not as deviation
 
 ## Deviation Rules
 
-While executing a slice, you may discover work not explicitly in the plan. Apply these rules automatically. Track all deviations in the slice summary when presenting for gate approval.
+While executing a slice, you may discover work not explicitly in the plan. Apply these rules automatically. Track all deviations in the slice summary.
 
 **Auto-fix** (no permission needed):
 
@@ -627,7 +554,7 @@ While executing a slice, you may discover work not explicitly in the plan. Apply
 |------|------|----------|
 | 4 | Architectural changes | New DB table (not column), major schema changes, new service layer, switching libraries/frameworks, changing auth approach, new infrastructure, breaking API changes |
 
-Fix inline → add/update tests if applicable → verify fix works → continue task. Document deviations in the slice gate summary using format: `[Rule N - Type] description`.
+Fix inline → add/update tests if applicable → verify fix works → continue task. Document deviations in the slice summary using format: `[Rule N - Type] description`.
 
 **Scope boundary:** Only auto-fix issues DIRECTLY caused by the current slice's changes. Pre-existing linting errors or failures in unrelated files are out of scope — log them to .agents/STATE.md as deferred items.
 
@@ -642,7 +569,7 @@ A good implementation under this skill should:
 - Deliver each slice as a vertical cross-section — types, logic, edge, and wiring in one pass
 - Keep slices small enough to review in one glance
 - Pass the quality gate before writing code
-- Pass the inner review and full verification before the gate
+- Pass the inner review and full verification before commit
 - Commit each slice on its own with a why body — git history is the record
 - Pull conventions (don't push them) — keep implementer context lean
-- Hand off via `impl-progress` and a handoff prompt, clearing context at `hitl` gates
+- **Run autonomously end-to-end** — no per-slice human gates, only `@review` at the end
