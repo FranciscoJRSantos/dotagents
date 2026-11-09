@@ -35,13 +35,22 @@ Some projects require per-slice merge requests for compliance (e.g. HITRUST E1
 certification). Detect this by checking for `.agents/project.yaml` with a
 `certified: true` flag:
 
-<!-- project-config-detection:begin — shared verbatim across @ship -->
+<!-- project-config-detection:begin — shared verbatim across @ship and @build -->
 ```bash
-# Detect certified project
+# Detect certified project — three states: CERTIFIED / STANDARD / UNPARSEABLE
+# Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
+# anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
 if [ -f ".agents/project.yaml" ]; then
-  CERTIFIED=$(grep -E '^certified:[[:space:]]*(true|True|TRUE)([[:space:]]*#.*)?$' .agents/project.yaml | head -1)
-  if [ -n "$CERTIFIED" ]; then
+  if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
     echo "CERTIFIED_PROJECT"
+  elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    echo "STANDARD_PROJECT"
+  elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
+    LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
+    echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
+    echo "  $LINE" >&2
+    echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
+    exit 1
   else
     echo "STANDARD_PROJECT"
   fi
@@ -303,21 +312,32 @@ the MR.
 
 First, detect whether this is a certified project:
 
+<!-- project-config-detection:begin — shared verbatim across @ship and @build -->
 ```bash
-PROJECT_TYPE=$(bash -c '
+# Detect certified project — three states: CERTIFIED / STANDARD / UNPARSEABLE
+# Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
+# anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
 if [ -f ".agents/project.yaml" ]; then
-  CERTIFIED=$(grep -E "^certified:[[:space:]]*(true|True|TRUE)([[:space:]]*#.*)?$" .agents/project.yaml | head -1)
-  if [ -n "$CERTIFIED" ]; then
+  if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
     echo "CERTIFIED_PROJECT"
+  elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    echo "STANDARD_PROJECT"
+  elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
+    LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
+    echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
+    echo "  $LINE" >&2
+    echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
+    exit 1
   else
     echo "STANDARD_PROJECT"
   fi
 else
   echo "STANDARD_PROJECT"
 fi
-')
-echo "Project type: ${PROJECT_TYPE}"
 ```
+<!-- project-config-detection:end -->
+
+Project type: captured from the snippet output. If the snippet exits 1, @ship aborts — no silent fallback to batched MR.
 
 #### Certified Projects: Per-Slice MRs
 
@@ -326,6 +346,7 @@ For certified projects (e.g. HITRUST E1), create one MR per slice in dependency 
 ```bash
 if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
   IMPL_FILE=".agents/artifacts/${LABEL}-impl-progress.md"
+  BOARD_FILE=".agents/artifacts/${LABEL}-kanban-board.md"
   
   if [ ! -f "$IMPL_FILE" ]; then
     echo "Error: impl-progress artifact not found at $IMPL_FILE"
@@ -333,26 +354,62 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
     exit 1
   fi
   
+  if [ ! -f "$BOARD_FILE" ]; then
+    echo "Error: kanban board not found at $BOARD_FILE"
+    echo "Cannot determine slice dependencies for per-slice MRs"
+    exit 1
+  fi
+  
+  # Guard yq availability
+  if ! command -v yq >/dev/null 2>&1; then
+    echo "Error: yq not found — required for certified project MR creation"
+    exit 1
+  fi
+  
+  # Derive epic branch deterministically (handles resume after /clear)
+  EPIC_BRANCH=$(echo "$BRANCH" | sed -E 's/-s[0-9]+$//')
+  
   # Get slice count from frontmatter
-  SLICE_COUNT=$(yq --front-matter=process eval '.slices | length' "$IMPL_FILE" | head -1)
+  SLICE_COUNT=$(yq --front-matter=process eval '.slices | length' "$BOARD_FILE" | head -1)
+  case "$SLICE_COUNT" in
+    ''|*[!0-9]*) echo "Error: could not parse slice count from board"; exit 1 ;;
+    0) echo "Error: board has no slices"; exit 1 ;;
+  esac
   echo "Creating $SLICE_COUNT per-slice MRs"
   
   # Iterate through slices in order (1, 2, 3, ...)
   for i in $(seq 1 $SLICE_COUNT); do
-    # Extract slice metadata
-    SLICE_ID=$(yq --front-matter=process eval ".slices[$((i-1))].id" "$IMPL_FILE" | head -1)
-    SLICE_TITLE=$(yq --front-matter=process eval ".slices[$((i-1))].title" "$IMPL_FILE" | head -1)
-    SLICE_COMMIT=$(yq --front-matter=process eval ".slices[$((i-1))].commit" "$IMPL_FILE" | head -1)
+    # Extract slice metadata from board (dependency info)
+    SLICE_ID=$(yq --front-matter=process eval ".slices[$((i-1))].id" "$BOARD_FILE" | head -1)
+    SLICE_TITLE=$(yq --front-matter=process eval ".slices[$((i-1))].title" "$BOARD_FILE" | head -1)
+    SLICE_DESC=$(yq --front-matter=process eval ".slices[$((i-1))].description // \"\"" "$BOARD_FILE" | head -1)
+    
+    # Derive MR base from blocked_by — respects dependency order
+    BLOCKED_BY=$(yq --front-matter=process eval \
+      ".slices[$((i-1))].blocked_by | join(\",\")" "$BOARD_FILE" | head -1)
+    
+    case "$BLOCKED_BY" in
+      "")   MR_BASE="$EPIC_BRANCH" ;;
+      *,*)  echo "Error: multi-dep slice $SLICE_ID not supported in certified mode"
+            echo "Slice $SLICE_ID has dependencies: $BLOCKED_BY"
+            echo "Certified projects require linear dependency chains"
+            exit 1 ;;
+      *)    MR_BASE="${EPIC_BRANCH}-s${BLOCKED_BY}"
+            if ! git show-ref --verify --quiet "refs/heads/$MR_BASE"; then
+              echo "Error: parent branch $MR_BASE doesn't exist for slice $SLICE_ID"
+              exit 1
+            fi ;;
+    esac
     
     # Determine slice branch name
-    SLICE_BRANCH="${BRANCH}-s${SLICE_ID}"
-    
-    # Determine parent branch (epic branch for slice 1 or slices with no deps)
-    # For simplicity, all slices target the epic branch (BRANCH without -s<N>)
-    PARENT_BRANCH=$(echo "$BRANCH" | sed -E 's/-s[0-9]+$//')
+    SLICE_BRANCH="${EPIC_BRANCH}-s${SLICE_ID}"
+    if ! git show-ref --verify --quiet "refs/heads/$SLICE_BRANCH"; then
+      echo "Error: slice branch $SLICE_BRANCH doesn't exist"
+      exit 1
+    fi
     
     echo "Creating MR for Slice $SLICE_ID: $SLICE_TITLE"
-    echo "  Branch: $SLICE_BRANCH → $PARENT_BRANCH"
+    echo "  Branch: $SLICE_BRANCH → $MR_BASE"
     
     # Push the slice branch
     git push -u origin "$SLICE_BRANCH" || {
@@ -370,14 +427,19 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
         --body "$(cat <<EOF
 ## Slice ${SLICE_ID}: ${SLICE_TITLE}
 
+${SLICE_DESC}
+
 Part of ${LABEL} implementation.
 
 🤖 AI-assisted
 EOF
 )" \
         --head "$SLICE_BRANCH" \
-        --base "$PARENT_BRANCH" \
-        --assignee @me
+        --base "$MR_BASE" \
+        --assignee @me || {
+          echo "Error: failed to create MR for slice $SLICE_ID"
+          exit 1
+        }
     # GitLab
     elif [ "$FORGE" = "gitlab" ]; then
       glab mr create \
@@ -385,14 +447,23 @@ EOF
         --description "$(cat <<EOF
 ## Slice ${SLICE_ID}: ${SLICE_TITLE}
 
+${SLICE_DESC}
+
 Part of ${LABEL} implementation.
 
 🤖 AI-assisted
 EOF
 )" \
         --source-branch "$SLICE_BRANCH" \
-        --target-branch "$PARENT_BRANCH" \
-        --assignee @me
+        --target-branch "$MR_BASE" \
+        --assignee @me || {
+          echo "Error: failed to create MR for slice $SLICE_ID"
+          exit 1
+        }
+    else
+      echo "Error: unknown forge — cannot create per-slice MRs automatically"
+      echo "Create MRs manually: $SLICE_BRANCH → $MR_BASE"
+      exit 1
     fi
   done
   

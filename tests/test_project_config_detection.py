@@ -4,6 +4,11 @@ The snippet detects whether the current repo is a certified project by checking
 for .agents/project.yaml with a certified: true flag. Skills embed this snippet
 via begin/end markers and use CERTIFIED_PROJECT vs STANDARD_PROJECT to adjust
 behavior (e.g. @ship creates per-slice MRs for certified projects).
+
+Three states:
+- CERTIFIED_PROJECT: certified: true/True/TRUE found
+- STANDARD_PROJECT: no project.yaml, or certified: false/False/FALSE, or no certified line
+- exit 1: certified line exists but value not recognized (prevents silent fallback)
 """
 
 import re
@@ -28,8 +33,10 @@ def _extract_snippet(skill_file: Path) -> str:
     return match.group(1)
 
 
-def _run_snippet(snippet: str, project_yaml_content: str | None) -> str:
-    """Run the snippet in a temp dir, optionally creating .agents/project.yaml."""
+def _run_snippet(
+    snippet: str, project_yaml_content: str | None
+) -> tuple[int, str, str]:
+    """Run the snippet in a temp dir. Returns (returncode, stdout, stderr)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
         if project_yaml_content is not None:
@@ -42,9 +49,26 @@ def _run_snippet(snippet: str, project_yaml_content: str | None) -> str:
             text=True,
             cwd=tmpdir,
         )
-        assert result.returncode == 0, f"snippet failed: {result.stderr}"
-        assert result.stderr == "", f"snippet stderr: {result.stderr}"
-        return result.stdout.strip()
+        return result.returncode, result.stdout.strip(), result.stderr
+
+
+def _assert_certified(snippet: str, content: str | None, expected: str):
+    """Run snippet and assert it returns expected stdout with exit 0."""
+    rc, stdout, stderr = _run_snippet(snippet, content)
+    assert rc == 0, f"snippet exited {rc}: {stderr}"
+    assert stdout == expected, f"expected {expected}, got {stdout}"
+
+
+def _assert_unparseable(snippet: str, content: str):
+    """Run snippet and assert it exits 1 with error on stderr."""
+    rc, stdout, stderr = _run_snippet(snippet, content)
+    assert rc == 1, f"snippet should exit 1 but exited {rc}: stdout={stdout}"
+    assert "not recognized" in stderr.lower() or "error" in stderr.lower(), (
+        f"stderr should contain error message: {stderr}"
+    )
+
+
+# --- Snippet presence ---
 
 
 def test_snippet_exists_in_ship_skill():
@@ -53,57 +77,112 @@ def test_snippet_exists_in_ship_skill():
     assert len(snippet) > 0
 
 
+# --- CERTIFIED_PROJECT cases ---
+
+
 def test_certified_true_returns_certified_project():
     """certified: true in project.yaml → CERTIFIED_PROJECT."""
     snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, "certified: true\n")
-    assert output == "CERTIFIED_PROJECT"
+    _assert_certified(snippet, "certified: true\n", "CERTIFIED_PROJECT")
 
 
-def test_certified_false_returns_standard_project():
-    """certified: false in project.yaml → STANDARD_PROJECT."""
+def test_certified_true_uppercase():
+    """certified: True → CERTIFIED_PROJECT."""
     snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, "certified: false\n")
-    assert output == "STANDARD_PROJECT"
+    _assert_certified(snippet, "certified: True\n", "CERTIFIED_PROJECT")
 
 
-def test_no_certified_field_returns_standard_project():
-    """project.yaml exists but has no certified field → STANDARD_PROJECT."""
+def test_certified_true_all_caps():
+    """certified: TRUE → CERTIFIED_PROJECT."""
     snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, "name: my-project\n")
-    assert output == "STANDARD_PROJECT"
-
-
-def test_no_project_yaml_returns_standard_project():
-    """No .agents/project.yaml → STANDARD_PROJECT."""
-    snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, None)
-    assert output == "STANDARD_PROJECT"
+    _assert_certified(snippet, "certified: TRUE\n", "CERTIFIED_PROJECT")
 
 
 def test_certified_with_extra_fields_returns_certified_project():
     """certified: true among other fields → CERTIFIED_PROJECT."""
     snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, "name: aiH\ncertified: true\nstandard: hitrust-e1\n")
-    assert output == "CERTIFIED_PROJECT"
+    _assert_certified(
+        snippet,
+        "name: aiH\ncertified: true\nstandard: hitrust-e1\n",
+        "CERTIFIED_PROJECT",
+    )
 
 
 def test_certified_true_with_comment_returns_certified_project():
     """certified: true # comment → CERTIFIED_PROJECT (trailing comment ignored)."""
     snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, "certified: true # hitrust e1\n")
-    assert output == "CERTIFIED_PROJECT"
+    _assert_certified(snippet, "certified: true # hitrust e1\n", "CERTIFIED_PROJECT")
 
 
-def test_certified_truthy_returns_standard_project():
-    """certified: truthy → STANDARD_PROJECT (near-miss rejected by end anchor)."""
+# --- STANDARD_PROJECT cases ---
+
+
+def test_certified_false_returns_standard_project():
+    """certified: false in project.yaml → STANDARD_PROJECT."""
     snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, "certified: truthy\n")
-    assert output == "STANDARD_PROJECT"
+    _assert_certified(snippet, "certified: false\n", "STANDARD_PROJECT")
+
+
+def test_certified_false_uppercase():
+    """certified: False → STANDARD_PROJECT."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_certified(snippet, "certified: False\n", "STANDARD_PROJECT")
+
+
+def test_no_certified_field_returns_standard_project():
+    """project.yaml exists but has no certified field → STANDARD_PROJECT."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_certified(snippet, "name: my-project\n", "STANDARD_PROJECT")
+
+
+def test_no_project_yaml_returns_standard_project():
+    """No .agents/project.yaml → STANDARD_PROJECT."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_certified(snippet, None, "STANDARD_PROJECT")
 
 
 def test_certified_true_in_comment_returns_standard_project():
     """# certified: true → STANDARD_PROJECT (comment line ignored by ^ anchor)."""
     snippet = _extract_snippet(SHIP_SKILL)
-    output = _run_snippet(snippet, "# certified: true\n")
-    assert output == "STANDARD_PROJECT"
+    _assert_certified(snippet, "# certified: true\n", "STANDARD_PROJECT")
+
+
+# --- UNPARSEABLE cases (exit 1 — prevents silent fallback to batched MR) ---
+
+
+def test_certified_truthy_exits_unparseable():
+    """certified: truthy → exit 1 (not a recognized boolean)."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_unparseable(snippet, "certified: truthy\n")
+
+
+def test_certified_quoted_true_exits_unparseable():
+    """certified: "true" → exit 1 (quoted string, not bare boolean)."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_unparseable(snippet, 'certified: "true"\n')
+
+
+def test_certified_yes_exits_unparseable():
+    """certified: yes → exit 1 (YAML 1.1 boolean not supported)."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_unparseable(snippet, "certified: yes\n")
+
+
+def test_certified_on_exits_unparseable():
+    """certified: on → exit 1 (YAML 1.1 boolean not supported)."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_unparseable(snippet, "certified: on\n")
+
+
+def test_certified_1_exits_unparseable():
+    """certified: 1 → exit 1 (numeric not supported)."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    _assert_unparseable(snippet, "certified: 1\n")
+
+
+def test_crlf_line_endings_handled():
+    """certified: true with CRLF line endings → CERTIFIED_PROJECT."""
+    snippet = _extract_snippet(SHIP_SKILL)
+    # CRLF: the regex anchor $ in POSIX grep matches before \r on some systems
+    # but our regex explicitly handles it via ([[:space:]]*#.*)?$ which absorbs \r
+    _assert_certified(snippet, "certified: true\r\n", "CERTIFIED_PROJECT")
