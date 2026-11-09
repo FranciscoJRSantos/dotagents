@@ -157,7 +157,7 @@ Write the review report to the artifact regardless (it's the source of truth).
 
 ## Step 6: Write the Artifact
 
-Determine the artifact location. When Step 1 resolved a folder (`ARTIFACT_DIR` set), write `review.org` there. Otherwise, write to `.agents/artifacts/<slug>/review.org` using the slug from the invocation, or abort if no slug was provided.
+Determine the artifact location. When Step 1 resolved a folder (`ARTIFACT_DIR` set), write `review.org` there. Otherwise, derive the slug from the current branch name and write to `.agents/artifacts/<slug>/review.org`, or abort if a slug cannot be derived.
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
 ```bash
