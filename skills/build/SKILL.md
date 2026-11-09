@@ -160,19 +160,27 @@ For certified projects, each slice gets its own branch based on the dependency g
 # Set SLICE_ID from Step 2 (first unblocked slice)
 # SLICE_ID=<first unblocked slice id from Step 2>
 
-# Detect certified project (shared snippet — see @ship)
-PROJECT_TYPE=$(bash -c '
+# Detect certified project — shared snippet with @ship
+# Three states: CERTIFIED / STANDARD / UNPARSEABLE; exits 1 on unparseable
+# Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
+# anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
 if [ -f ".agents/project.yaml" ]; then
-  CERTIFIED=$(grep -E "^certified:[[:space:]]*(true|True|TRUE)([[:space:]]*#.*)?$" .agents/project.yaml | head -1)
-  if [ -n "$CERTIFIED" ]; then
-    echo "CERTIFIED_PROJECT"
+  if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="CERTIFIED_PROJECT"
+  elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="STANDARD_PROJECT"
+  elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
+    LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
+    echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
+    echo "  $LINE" >&2
+    echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
+    exit 1
   else
-    echo "STANDARD_PROJECT"
+    PROJECT_TYPE="STANDARD_PROJECT"
   fi
 else
-  echo "STANDARD_PROJECT"
+  PROJECT_TYPE="STANDARD_PROJECT"
 fi
-')
 
 if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
   # Derive epic branch by stripping -s<N> suffix (handles resume after /clear)
