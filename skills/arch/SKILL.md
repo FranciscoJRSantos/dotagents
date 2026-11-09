@@ -46,25 +46,69 @@ artifacts for detail.
 
 `@arch` takes one of three inputs:
 
-| Invocation | Source | Jira access |
-|---|---|---|
-| `@arch PROJ-123` | the Jira ticket | fetch + post |
-| `@arch <slug>` | `.agents/artifacts/grill-<slug>-decisions.md` | none |
-| `@arch` | pick from the decision logs on disk | none |
+| Invocation | Source | Folder | Jira access |
+|---|---|---|---|
+| `@arch <slug>` | `<slug>/decisions.org` | `<slug>` | none |
+| `@arch PROJ-123` | the Jira ticket, plus any log with `#+TICKET: PROJ-123` | that log's folder, else `proj-123-<summary>` | fetch + post |
+| `@arch` | pick from folders with `decisions.org` and no `plan.org` | the picked one | none |
 
-### 1a. Jira key
+`~/.agents/bin/artifact-dir <slug>` resolves a folder: it prints
+`ARTIFACT_DIR=<path>`, moves an archived folder back (`REOPENED: <slug>`), and
+exits 1 with `NOT FOUND: <slug>` on a typo. Do not run it under `set -e`.
 
-Load only the decision logs that name this ticket — never glob for unrelated logs:
+### 1a. Slug
+
+```bash
+OUT=$(~/.agents/bin/artifact-dir "<slug>"); rc=$?
+echo "$OUT"
+DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
+```
+
+On `rc != 0`, show the output and ask for the right slug. Otherwise read the log:
+
+```bash
+cat "$DIR/decisions.org"
+```
+
+Build the plan from its Resolved Decisions and take `TICKET` from its keyword
+(empty when absent). Do not fetch or post to Jira.
+
+```bash
+TICKET=$(grep -m1 '^#+TICKET:' "$DIR/decisions.org" | cut -d' ' -f2)
+```
+
+### 1b. Jira key
+
+Find the work folders that name this ticket — by keyword in any of their `.org`
+files, never by folder name, the same scope `artifact-dir` uses — active work first,
+then archived:
 
 ```bash
 KEY=PROJ-123
-for f in .agents/artifacts/grill-*-decisions.md; do
-  [ -f "$f" ] || continue
-  grep -q "^ticket: ${KEY}$" "$f" && echo "$f"
+TICKET=$KEY
+for root in .agents/artifacts .agents/archive; do
+  M=$(grep -lx "#+TICKET: $KEY" "$root"/*/*.org 2>/dev/null |
+      xargs -r -n1 dirname | xargs -r -n1 basename | sort -u)
+  [ -n "$M" ] && { echo "$M"; break; }
 done
 ```
 
-Read any matches to incorporate resolved decisions into the plan.
+- **One folder** — pass it to `artifact-dir` as in 1a (this reopens an archived
+  one) and read its `decisions.org`, if any, to incorporate the resolved decisions.
+  If it already has a `plan.org`, ask before replacing it.
+- **Several folders** — list them and ask which one this plan belongs to.
+- **None** — name the folder after the ticket once its summary is known (below),
+  and never write into a folder that already exists under that name:
+
+  ```bash
+  SLUG=$(~/.agents/bin/slug "$KEY <summary>")
+  DIR=".agents/artifacts/$SLUG"
+  for d in "$DIR" ".agents/archive/$SLUG"; do
+    [ -e "$d" ] && echo "EXISTS: $d"
+  done
+  ```
+
+  On `EXISTS`, show the path and ask the user for the folder name to use.
 
 Fetch the ticket from Jira:
 
@@ -85,27 +129,18 @@ Extract:
 - Acceptance criteria (explicit or implied)
 - Any linked tickets or context
 
-### 1b. Decision log
-
-```bash
-SLUG=<slug>
-LOG=".agents/artifacts/grill-${SLUG}-decisions.md"
-[ -f "$LOG" ] || { echo "No decision log at $LOG"; exit 1; }
-cat "$LOG"
-```
-
-Build the plan from the log's Resolved Decisions. Do not fetch or post to Jira.
-When this plan is written, mark the log consumed (Step 8b).
-
 ### 1c. No argument
 
-List the available logs and ask the user to pick one:
+List the folders with a `decisions.org` and no `plan.org` yet — those are the
+unplanned specs:
 
 ```bash
-ls .agents/artifacts/grill-*-decisions.md 2>/dev/null
+for d in .agents/artifacts/*/; do
+  [ -f "$d/decisions.org" ] && [ ! -f "$d/plan.org" ] && basename "$d"
+done
 ```
 
-If there are none, ask for a Jira key and continue with 1a.
+If there are none, ask for a Jira key and continue with 1b.
 
 ---
 
@@ -412,8 +447,8 @@ explicitly N/A with a stated reason). Feature, API QoL and Epic plans skip this
 gate — their acceptance criteria are testable conditions, not numeric thresholds.
 The prompt names what approval does in the current mode:
 
-- **Jira key:** *"Plan written to `<path>`. N slices. Say 'approved' to post as Jira comment, or tell me what to adjust."*
-- **Decision log:** *"Plan written to `<path>`. N slices. Say 'approved' to write artifacts, or tell me what to adjust."*
+- **Jira key:** *"Does this plan look right? Say 'approved' to post it as a Jira comment and write `plan.org` and `board.org`, or tell me what to adjust."*
+- **Slug:** *"Does this plan look right? Say 'approved' to write `plan.org` and `board.org`, or tell me what to adjust."*
 
 Do not write anything yet.
 
@@ -424,51 +459,20 @@ Do not write anything yet.
 The user must say "approved", "yes", "lgtm", or similar. If they ask for changes,
 revise the plan and show the updated version.
 
-### 8a. Write to Jira (Jira key mode only)
-
-Skip this step entirely in decision log mode — there is no Jira ticket to comment on.
-
-First check available flags:
+Save the approved plan Markdown once. The same file feeds the Jira comment (8b)
+and `plan.org` (8c), so the two never drift:
 
 ```bash
-acli jira workitem comment --help
-```
-
-Then convert the markdown plan to Atlassian Document Format (ADF) and post it.
-The converter sits beside this `SKILL.md`. Claude Code substitutes
-`${CLAUDE_SKILL_DIR}` in the skill content, while OpenCode exposes no such
-substitution, so fall back to its deployed path:
-
-```bash
-# Resolve this skill's directory
-SKILL_DIR="${CLAUDE_SKILL_DIR}"
-[ -n "$SKILL_DIR" ] || SKILL_DIR="$HOME/.config/opencode/skills/arch"
-
-# Save the plan markdown to a temp file
-PLAN_MD=$(mktemp)
+PLAN_MD=$(mktemp --suffix=.md)
 cat > "$PLAN_MD" <<'EOF'
-[paste the full approved plan markdown here]
+[paste the full approved plan markdown here — no # Title line, no frontmatter]
 EOF
-
-# Convert to ADF JSON, guarding against a converter hang
-PLAN_JSON=$(mktemp)
-if timeout 10 python3 "$SKILL_DIR/md_to_adf.py" "$PLAN_MD" "$PLAN_JSON"; then
-  acli jira workitem comment create --key PROJ-123 --body-file "$PLAN_JSON"
-else
-  echo "ADF conversion failed or timed out — posting the plan as plain text instead."
-  acli jira workitem comment create --key PROJ-123 --body-file "$PLAN_MD"
-fi
-
-# Clean up
-rm "$PLAN_MD" "$PLAN_JSON"
 ```
 
-Confirm the comment was posted and show the ticket URL or key.
+### 8a. Make sure the folder is ignored
 
-### 8b. Write Plan Artifact
-
-Resolve the artifact label from the current branch name — the ticket key when the
-branch carries one, otherwise the branch name with `/` replaced by `-`:
+`$DIR` is the folder resolved in Step 1. First make sure `.agents/` ignores its own
+state:
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
 ```bash
@@ -479,70 +483,111 @@ mkdir -p .agents
 <!-- agents-gitignore:end -->
 
 ```bash
-mkdir -p .agents/artifacts
+mkdir -p "$DIR"
 ```
 
-<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
-```bash
-TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
-LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
-```
-<!-- artifact-label:end -->
+### 8b. Write to Jira (Jira key mode only)
 
-Write `.agents/artifacts/<LABEL>-plan.md`. `ticket` is the Jira key argument in
-Jira mode and `null` in decision log mode; `status` is `posted` in Jira mode and `active`
-in decision log mode:
+Skip this step entirely in slug mode — there is no Jira ticket to comment on.
 
-```yaml
----
-artifact: plan
-ticket: <Jira key or null>
-skill: arch
-created: <ISO 8601 timestamp>
-status: posted        # or: active in decision log mode
----
-```
-
-Followed by the full plan content.
-
-In decision log mode, mark the source log as consumed so the same decisions are not
-planned twice:
+First check available flags:
 
 ```bash
-LOG=".agents/artifacts/grill-<slug>-decisions.md"
-grep -q '^consumed_by:' "$LOG" || sed -i "/^skill: spec/a consumed_by: ${LABEL}-plan.md" "$LOG"
+acli jira workitem comment --help
 ```
 
-### 8c. Write Kanban Board Artifact
+Then convert the plan to Atlassian Document Format (ADF) and post it. The converter
+sits beside this `SKILL.md`. Claude Code substitutes `${CLAUDE_SKILL_DIR}` in the
+skill content, while OpenCode exposes no such substitution, so fall back to its
+deployed path:
 
-Write `.agents/artifacts/<LABEL>-kanban-board.md`:
+```bash
+# Resolve this skill's directory
+SKILL_DIR="${CLAUDE_SKILL_DIR}"
+[ -n "$SKILL_DIR" ] || SKILL_DIR="$HOME/.config/opencode/skills/arch"
 
-```yaml
----
-artifact: kanban-board
-ticket: <Jira key or null>
-skill: arch
-created: <ISO 8601 timestamp>
-status: active
-slices:
-  - id: 1
-    title: <slice title>
-    description: <what this slice delivers>
-    mode: afk          # or: hitl — justify every hitl in the description
-    blocks: [<slice IDs>]
-    blocked_by: [<slice IDs>]
-    module_interfaces:
-      - module: <path>
-        public_interface: <methods/types>
-        test_boundaries: <boundary description>
-  - id: 2
-    ...
----
+# Convert to ADF JSON, guarding against a converter hang
+PLAN_JSON=$(mktemp)
+if timeout 10 python3 "$SKILL_DIR/md_to_adf.py" "$PLAN_MD" "$PLAN_JSON"; then
+  acli jira workitem comment create --key PROJ-123 --body-file "$PLAN_JSON"
+else
+  echo "ADF conversion failed or timed out — posting the plan as plain text instead."
+  acli jira workitem comment create --key PROJ-123 --body-file "$PLAN_MD"
+fi
+rm -f "$PLAN_JSON"
 ```
 
-This artifact is read by `@build` to know which slice to work on and to resume.
+Confirm the comment was posted and show the ticket URL or key.
 
-Run `/clear` before `@build` to start implementation in a fresh context window.
+### 8c. Write `plan.org`
+
+Convert the same Markdown. `TICKET` comes from Step 1 (empty in slug mode without
+a ticket, and then omitted); add `JIRA_COMMENT="<url>"` when 8b returned one:
+
+```bash
+~/.agents/bin/md2org "$PLAN_MD" "$DIR/plan.org" TITLE="Plan: <title>" TICKET="$TICKET" &&
+  rm -f "$PLAN_MD"
+```
+
+`md2org` must exit 0 before you continue. On a non-zero exit it prints `file:line`
+per Markdown leftover and keeps both files: fix the lines in `$PLAN_MD` and run it
+again.
+
+### 8d. Write `board.org`
+
+`board.org` is the one artifact written as Org directly, from this template. It
+holds every slice's definition and, through its TODO keywords, its state —
+`@build` advances it with `sed`, so keep the shapes exact:
+
+- One `* TODO Slice <N>: <title>` heading per slice, all starting as `TODO`.
+- The property drawer comes right after the heading. `:SLICE:` (never `:ID:`,
+  which org-id owns), `:MODE:` `hitl` or `afk`, `:BLOCKS:` and `:BLOCKED_BY:` as
+  space-separated slice numbers (empty when none), and `:COMMIT:` always present
+  and empty.
+- Then the description (justify every `afk` there) and a `** Module interfaces`
+  list. Write Org markup: `=path=` and `~code~`, `*bold*`, never backticks or `**`.
+
+```org
+#+TITLE: Board: <title>
+#+CREATED: <ISO 8601 timestamp, UTC>
+#+TODO: TODO DOING | DONE SKIPPED
+
+* TODO Slice 1: <slice title>
+:PROPERTIES:
+:SLICE: 1
+:MODE: hitl
+:BLOCKS: 2 3
+:BLOCKED_BY:
+:COMMIT:
+:END:
+<what this slice delivers; for afk, why it is safe to run unattended>
+
+** Module interfaces
+- =<path>= — <public interface>. Tests: <test boundaries>
+
+* TODO Slice 2: <slice title>
+:PROPERTIES:
+:SLICE: 2
+:MODE: hitl
+:BLOCKS:
+:BLOCKED_BY: 1
+:COMMIT:
+:END:
+<description>
+
+** Module interfaces
+- =<path>= — <public interface>. Tests: <test boundaries>
+```
+
+Then check it, and fix any reported line before finishing:
+
+```bash
+~/.agents/bin/org-check "$DIR/board.org"
+```
+
+`@build` reads `plan.org` and `board.org` from this folder to pick and resume
+slices. Run `/clear` before `@build` to start implementation in a fresh context
+window.
 
 ---
 

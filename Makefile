@@ -10,6 +10,11 @@ AGENTS_DIR         ?= $(HOME)/.agents
 BIN_SRC            := bin
 AGENTS_DIR_ITEMS   := $(AGENTS_SRC)/partials $(BIN_SRC)
 
+## Files that resolve the active work folder: each must call ~/.agents/bin/artifact-dir
+## (checked by lint-agents). The rest of the chain joins as it moves to Org folders;
+## until then it stays under the artifact-label identity check.
+ARTIFACT_DIR_CALLERS := $(GLOBAL_SKILLS)/arch/SKILL.md
+
 OPENCODE_SKILLS_DIR ?= $(HOME)/.config/opencode/skills
 OPENCODE_AGENTS_DIR  ?= $(HOME)/.config/opencode/agents
 
@@ -201,11 +206,21 @@ lint-agents:
 	fi; \
 	rm -rf "$$tmp"; \
 	echo ""; \
+	echo "=== Checking skills resolve work folders via ~/.agents/bin/artifact-dir ==="; \
+	for f in $(ARTIFACT_DIR_CALLERS); do \
+		if grep -qF '~/.agents/bin/artifact-dir' "$$f"; then \
+			echo "OK    $$f calls artifact-dir"; \
+		else \
+			echo "FAIL  $$f does not call ~/.agents/bin/artifact-dir"; \
+			ok=false; \
+		fi; \
+	done; \
+	echo ""; \
 	echo "=== Checking shared artifact-label snippet ==="; \
 	tmp=$$(mktemp -d); \
 	ref=""; \
 	label_ok=true; \
-	for f in "$(GLOBAL_SKILLS)/arch/SKILL.md" "$(GLOBAL_SKILLS)/build/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(AGENTS_SRC)/reviewer.md"; do \
+	for f in "$(GLOBAL_SKILLS)/build/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(AGENTS_SRC)/reviewer.md"; do \
 		out="$$tmp/$$(printf '%s' "$$f" | tr '/' '_')"; \
 		sed -n '/artifact-label:begin/,/artifact-label:end/p' "$$f" > "$$out"; \
 		if [ ! -s "$$out" ]; then \

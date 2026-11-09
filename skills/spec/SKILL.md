@@ -13,8 +13,8 @@ decision tree depth-first, resolving dependencies between decisions one by
 one. Always explores the codebase before asking a question if the answer is
 knowable from code.
 
-Produces a decision log artifact (`.agents/artifacts/grill-<slug>-decisions.md`)
-that `@arch` can consume downstream.
+Produces a decision log (`.agents/artifacts/<slug>/decisions.org`) that
+`@arch <slug>` consumes downstream.
 
 ---
 
@@ -113,14 +113,25 @@ Ask: *"Decision log ready at `<path>`. N decisions resolved. Review or say 'appr
 Only after the user explicitly approves (says "approved", "yes", "lgtm", or
 similar). If they ask for changes, go back to Step 4 with revisions.
 
-Generate a slug from the topic:
+Each piece of work lives in its own folder, `.agents/artifacts/<slug>/`, and the
+skill that starts the work names it for good. Generate the slug from the topic:
 
 ```bash
-echo "<topic>" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]' | sed 's/--*/-/g; s/^-//; s/-$//'
+SLUG=$(~/.agents/bin/slug "<topic>") || SLUG=""
+DIR=".agents/artifacts/$SLUG"
+[ -n "$SLUG" ] || echo "NO SLUG"
+for d in "$DIR" ".agents/archive/$SLUG"; do
+  [ -n "$SLUG" ] && [ -e "$d" ] && echo "EXISTS: $d"
+done
 ```
 
-Save `.agents/artifacts/grill-<slug>-decisions.md`. First make sure `.agents/`
-ignores its own state:
+On `NO SLUG` (the topic has no letters or digits), ask for a short topic name and
+regenerate. On `EXISTS`, do not overwrite blindly: show the path and ask whether to
+pick a different topic name or to continue that work. To continue, move an archived
+folder back with `~/.agents/bin/artifact-dir <slug>`, read its `decisions.org`, and
+write the merged log (old and new decisions) back to the same path.
+
+First make sure `.agents/` ignores its own state:
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
 ```bash
@@ -130,57 +141,57 @@ mkdir -p .agents
 ```
 <!-- agents-gitignore:end -->
 
+Write the log as Markdown and convert it with `md2org`, which runs pandoc, stamps
+the `#+KEY:` keywords on top and runs `org-check`. Never write YAML frontmatter:
+metadata goes in as `KEY=VAL` arguments. Set `TICKET` to the Jira key when the
+specced work maps to a ticket, so `@arch <KEY>` can find this log; leave it empty
+otherwise (an empty value is omitted, never written as `null`). The body has no
+`# Title` line — the title is the `TITLE` keyword — so its top-level sections use
+`#`:
+
 ```bash
-mkdir -p .agents/artifacts
-```
-
-```markdown
----
-artifact: grill-decisions
-slug: <slug>
-skill: spec
-created: <ISO 8601 timestamp>
-ticket: <PROJ-123 or null>
----
-
-## Context
+TICKET=""   # or the Jira key, e.g. PROJ-123
+~/.agents/bin/md2org - "$DIR/decisions.org" TITLE="<topic, human-readable>" TICKET="$TICKET" <<'EOF'
+# Context
 
 <what was being specced — user's original description>
 
-## Resolved Decisions
+# Resolved Decisions
 
-### D1: <question>
+## D1: <question>
+
 - **Answer**: <resolved answer>
 - **Rationale**: <why>
 - **Informs**: <which downstream decisions this feeds into>
 
-### D2: <question>
+## D2: <question>
+
 - **Answer**: <resolved answer>
 - **Rationale**: <why>
 - **Informs**: <which downstream decisions this feeds into>
 
-## Open Questions
+# Open Questions
 
 - <any decisions left unresolved; otherwise "None">
 
-## Blocked Decisions
+# Blocked Decisions
 
 - <any decisions that couldn't be resolved because open questions blocked them; otherwise "None">
 
-## Recommended Next Steps
+# Recommended Next Steps
 
-Based on the resolved decisions, suggest one or more of:
-
-- `@arch` — to create an implementation plan from resolved decisions
+- `@arch <slug>` — to create an implementation plan from resolved decisions
 - Post to Jira via MCP — to turn these decisions into a ticket
+EOF
 ```
+
+`md2org` must exit 0 before you continue. On a non-zero exit it prints
+`file:line` for each Markdown leftover and keeps the file: fix those lines in the
+Markdown and run it again.
 
 The log is local working state, not the record. Each decision must reach the
 commit message of the work it drives — that is where the "why" lives on.
-
-Set `ticket:` to the Jira key when the specced work maps to a ticket, so
-`@arch <KEY>` can find this log; use `ticket: null` otherwise. `@arch
-<slug>` reads it without any Jira access.
+`@arch <slug>` (or `@arch <KEY>` via `#+TICKET:`) reads it without any Jira access.
 
 End with a concise summary confirming the artifact was saved.
 
