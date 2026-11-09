@@ -41,6 +41,19 @@ artifacts for detail.
 
 ---
 
+## Subagent Routing
+
+This skill spawns a `reviewer` subagent (Step 10). The reviewer **must use a different model family** than the orchestrator — never review with the same model that implemented the code.
+
+**Required:** Spawn the reviewer with explicit model:
+```
+model: opencode-go/glm-5.3-flash
+```
+
+This keeps review independent (different family = independent signal) and off the company quota. See global `AGENTS.md` → "Model routing" for the canonical table.
+
+---
+
 ## Gotchas
 
 - Never skip the quality gate (Step 4). If the target language has no test framework or
