@@ -1,31 +1,33 @@
 ---
 name: build
 description: >
-  Autonomous vertical-slice implementation. Reads the plan and kanban-board
-  artifacts to determine which slice to implement. Each slice crosses all layers
-  (data → pure → edge → UI → integration), follows Red-Green-Refactor, passes
-  an inner review, and ends in its own commit. All slices run AFK — no per-slice
-  human gates. The agent runs end-to-end autonomously. Works from a plan, or in
-  ad-hoc mode with no plan as a single reviewed slice. Use this skill whenever
-  the user says "implement", "start coding", "proceed with implementation",
-  "@build", or wants to begin implementation.
-  Entry point: @build
+  Autonomous vertical-slice implementation. Reads plan.org and board.org from the
+  work's .agents/artifacts/<slug>/ folder to determine which slice to implement.
+  Each slice crosses all layers (data → pure → edge → UI → integration), follows
+  Red-Green-Refactor, passes an inner review, and ends in its own commit. All
+  slices run AFK — no per-slice human gates. The agent runs end-to-end autonomously.
+  Works from a plan, or in ad-hoc mode with no plan as a single reviewed slice. Use
+  this skill whenever the user says "implement", "start coding", "proceed with
+  implementation", "@build", or wants to begin implementation.
+  Entry point: @build [slug]
 ---
 
 # Build Skill
 
-Autonomous implementation one vertical slice at a time using the Kanban board artifact
-as the source of truth. Each slice delivers something testable, crosses all layers,
+Autonomous implementation one vertical slice at a time using the work's `board.org` as
+the source of truth. Each slice delivers something testable, crosses all layers,
 passes an inner `reviewer` pass, and is committed on its own. TDD is built into the
-loop (Red → Green → Refactor).
+loop (Red → Green → Refactor). Each slice's Org TODO keyword (`TODO`, `DOING`,
+`DONE`, `SKIPPED`) and its `:COMMIT:` property are the only state between slices, so
+`/clear` never loses the resume point.
 
 **All slices are AFK** — no per-slice human gates. The agent runs end-to-end,
 committing each slice autonomously. The only HITL point is `@review` at the end,
 where risk classification determines whether human review is needed.
 
-With no plan artifacts, it runs in **ad-hoc mode**: one goal, one acceptance
+With no work folder, it runs in **ad-hoc mode**: one goal, one acceptance
 criterion, one reviewed commit. The baseline — tests, inner review, real commit —
-is the same; only the plan and kanban are skipped.
+is the same; only the plan is skipped.
 
 ---
 
@@ -59,8 +61,11 @@ This keeps review independent (different family = independent signal) and off th
 - Never skip the quality gate (Step 4). If the target language has no test framework or
   type checker, install or configure one before writing any production code.
 - When exploring the module before the Red phase, read the relevant files directly. One focused exploration pass per slice.
-- `impl-progress` is the resume point. A `/clear` after a slice is recommended
+- `board.org` is the resume point. A `/clear` after a slice is recommended
   for context hygiene; AFK slices can chain in one session.
+- Change `board.org` only with the `sed` blocks in Steps 3 and 13, never with the edit
+  tool: every slice has an identical `:COMMIT:` line, and the `sed` range keeps the
+  change inside one slice's drawer. Run `org-check` after every change.
 - Pull coding conventions from project AGENTS.md at the start of each slice (Step 4).
   Do NOT load them in Step 1 — only the slice's own conventions are needed.
 - **All slices are AFK** — the agent runs end-to-end without stopping. Inner reviewer
@@ -73,97 +78,168 @@ This keeps review independent (different family = independent signal) and off th
 
 ---
 
-## Step 1: Load Artifacts
+## Step 1: Load the Work Folder
 
-Resolve the artifact label from the current branch name — the ticket key when the
-branch carries one, otherwise the branch name with `/` replaced by `-`:
-
-<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
-```bash
-TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
-LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
-```
-<!-- artifact-label:end -->
-
-Read the plan artifact for full context:
+Each piece of work lives in `.agents/artifacts/<slug>/`. Resolve it with
+`artifact-dir`, passing the slug when the invocation names one (`@build <slug>`)
+and an empty string otherwise. It exits 1 on anything but a folder, so capture its
+status and never run it under `set -e`:
 
 ```bash
-cat .agents/artifacts/${LABEL}-plan.md 2>/dev/null
+SLUG=<slug from the invocation, or empty>
+OUT=$(~/.agents/bin/artifact-dir "$SLUG"); rc=$?
+echo "$OUT"
+DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
 ```
 
-Read the Kanban board artifact for slice definitions:
+- **`ARTIFACT_DIR=…`** (`rc` 0, possibly after `REOPENED: <slug>`) — read the board
+  and the plan, then go to Step 2. An ad-hoc folder has no `plan.org`; the board's
+  acceptance criterion stands in for it:
 
-```bash
-cat .agents/artifacts/${LABEL}-kanban-board.md 2>/dev/null
-```
+  ```bash
+  cat "$DIR/board.org"
+  [ -f "$DIR/plan.org" ] && cat "$DIR/plan.org"
+  ```
 
-**If either artifact is missing, enter [ad-hoc mode](#ad-hoc-mode-no-plan) instead of
-stopping.** If both exist, also read the progress artifact, which is the resume point:
+  If the folder has no `board.org` (a grill log that was never planned), ask:
+  > "`<slug>` has no `board.org`. Run `@arch <slug>` first, or continue in ad-hoc
+  > mode in this folder?"
+- **`NONE`** — there is no work at all: enter [ad-hoc mode](#ad-hoc-mode-no-plan).
+- **`AMBIGUOUS: …`** or **`NOT FOUND: <slug>`** — show the output and ask which slug
+  to use, then run the block again with it.
 
-```bash
-cat .agents/artifacts/${LABEL}-impl-progress.md 2>/dev/null
-```
-
-If found with `status: in_progress` — the first slice whose frontmatter `status`
-is not `complete` (or the one marked `in_progress`) is the resume point. Announce:
-
-> "Resuming implementation — Slices [N, M] are complete. Starting from Slice [K]."
-
-For certified projects, run Step 2a (Create Slice Branch) before Step 4 to ensure
-the correct slice branch is checked out. Then skip directly to Step 4 (Quality Gate).
-
-If found with `status: complete` — warn:
-
-> "Implementation appears already complete. Run `@review` to review the changes,
-> or read the plan and progress artifacts for a full overview."
+A `LEGACY LAYOUT` warning on stderr means flat files from the old layout are present;
+they are ignored, so carry on.
 
 ---
 
 ## Ad-hoc Mode (no plan)
 
 For a quick fix with no `@arch` artifacts, run a single slice through the
-full loop. Take a one-sentence ticket from the branch label and ask for exactly two
-things:
+full loop. Ask for exactly two things:
 
-> "No plan artifacts found for `${LABEL}`. In one sentence, what is the goal? And
-> what is the single acceptance criterion that proves it works?"
+> "No planned work found. In one sentence, what is the goal? And what is the single
+> acceptance criterion that proves it works?"
 
-Then:
+Propose a folder name from the goal, and check it is not taken:
 
-1. Skip Step 2 (there is no board to display) and Step 3's multi-slice template;
-   write a one-row progress artifact instead — Step 3's schema with a single slice
-   whose `title` is the goal, `status: in_progress`, `commit: null`.
-2. Use the acceptance criterion where the loop would otherwise use the kanban's
-   `module_interfaces`.
-3. Run Steps 4–14 with slice `N = 1`.
+```bash
+SLUG=$(~/.agents/bin/slug "<goal>")
+for d in ".agents/artifacts/$SLUG" ".agents/archive/$SLUG"; do
+  [ -e "$d" ] && echo "EXISTS: $d"
+done
+echo "$SLUG"
+```
 
-Ad-hoc mode skips only the plan and kanban artifacts. It never skips the quality
-gate, TDD, the inner `reviewer` pass, or the per-slice commit.
+> "I'll keep this work in `.agents/artifacts/<slug>/`. OK, or another name?"
+
+On `EXISTS`, ask for another name. When Step 1 resolved a folder without
+`board.org`, skip the proposal and use that folder's slug. Then make sure `.agents/`
+ignores its own state:
+
+<!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
+```bash
+# .agents/ is agent state: ignore everything except the shared, tracked files.
+mkdir -p .agents
+[ -f .agents/.gitignore ] || printf '*\n!.gitignore\n!conventions.md\n!review.md\n' > .agents/.gitignore
+```
+<!-- agents-gitignore:end -->
+
+Write a one-slice `board.org` — the `@arch` board template with the acceptance
+criterion where the module interfaces would go — and check it:
+
+```bash
+SLUG=<the confirmed slug>
+DIR=".agents/artifacts/$SLUG"
+mkdir -p "$DIR"
+cat > "$DIR/board.org" <<'EOF'
+#+TITLE: Board: <goal>
+#+CREATED: <ISO 8601 timestamp, UTC>
+#+TODO: TODO DOING | DONE SKIPPED
+
+* TODO Slice 1: <goal>
+:PROPERTIES:
+:SLICE: 1
+:MODE: afk
+:BLOCKS:
+:BLOCKED_BY:
+:COMMIT:
+:END:
+<goal>
+
+** Acceptance criterion
+- <the acceptance criterion>
+EOF
+~/.agents/bin/org-check "$DIR/board.org"
+```
+
+Write Org markup in the placeholders (`=path=`, `~code~`), never backticks. Then:
+
+1. Skip Step 2 — the board has one slice.
+2. Use the acceptance criterion where the loop would otherwise use the slice's
+   module interfaces.
+3. Run Steps 3–14 with slice `N = 1` and `mode: afk`.
+
+Ad-hoc mode skips only the plan. It never skips the quality gate, TDD, the inner
+`reviewer` pass, or the per-slice commit.
 
 ---
 
-## Step 2: Display the Kanban Board
+## Step 2: Display the Board and Pick the Slice
 
-Show the slice dependency graph to the user. The board carries no per-slice state —
-`Status` comes from the impl-progress artifact:
+List every slice with its keyword, mode, blockers and commit, and derive the resume
+point: the first `DOING` slice, else the first `TODO` slice whose `:BLOCKED_BY:`
+slices are all `DONE`. `READY:` lists every unblocked `TODO` slice (parallel
+candidates):
 
+```bash
+awk '
+  /^\* [A-Z]+ Slice [0-9]+:/ {
+    n++; kw[n] = $2; id[n] = $4; sub(/:$/, "", id[n]); state[id[n]] = $2
+    t = $0; sub(/^\* [A-Z]+ Slice [0-9]+: */, "", t); title[n] = t
+    mode[n] = "afk"; bb[n] = ""; sha[n] = ""; drawer = 0; next
+  }
+  n && /^:PROPERTIES:$/ { drawer = 1; next }
+  /^:END:$/ { drawer = 0; next }
+  drawer && $1 == ":MODE:" { mode[n] = $2 }
+  drawer && $1 == ":BLOCKED_BY:" { $1 = ""; bb[n] = substr($0, 2) }
+  drawer && $1 == ":COMMIT:" { sha[n] = $2 }
+  END {
+    for (i = 1; i <= n; i++) {
+      printf "%-3s %-7s %-4s blocked_by: %-6s commit: %-8s %s\n", id[i], kw[i], mode[i],
+        (bb[i] == "" ? "-" : bb[i]), (sha[i] == "" ? "-" : sha[i]), title[i]
+      if (kw[i] == "DOING" && doing == "") doing = id[i]
+      if (kw[i] == "TODO") {
+        todo = 1; ok = 1; k = split(bb[i], b, " ")
+        for (j = 1; j <= k; j++) if (state[b[j]] != "DONE") ok = 0
+        if (ok) ready = ready " " id[i]
+      }
+    }
+    split(ready, r, " ")
+    if (doing != "") print "NEXT: " doing " (DOING — resume)"
+    else if (ready != "") print "NEXT: " r[1]
+    else if (todo) print "NEXT: none — every TODO slice is blocked"
+    else print "NEXT: none — every slice is DONE or SKIPPED"
+    if (ready != "") print "READY:" ready
+  }
+' "$DIR/board.org"
 ```
-## Kanban Board: <LABEL>
 
-| Slice | Title | Blocks | Blocked By | Mode | Status |
-|-------|-------|--------|------------|------|--------|
-| 1     | ...   | [2]    | []         | afk  | pending |
-| 2     | ...   | [3]    | [1]        | afk  | pending |
-| 3     | ...   | []     | [2]        | afk  | pending |
-```
+Show the listing to the user, then act on `NEXT:`:
 
-Identify which slice(s) are unblocked (no blockers, or all blockers complete):
+- **`DOING — resume`** — announce and skip directly to Step 4:
+  > "Resuming implementation — Slices [N, M] are DONE. Resuming Slice [K]."
+- **A slice number** — ask:
+  > "The first unblocked slice is Slice [N]: [title]. Shall I start there, or skip to
+  > another slice in `READY:`?"
+- **`every TODO slice is blocked`** — a blocker is `SKIPPED` or never finished; only
+  `DONE` unblocks. Show the blockers and ask how to proceed.
+- **`every slice is DONE or SKIPPED`** — warn:
+  > "Implementation appears already complete. Run `@review` to review the changes,
+  > or read `plan.org` and `board.org` for a full overview."
 
-- **First unblocked slice:** Slice [N]
-- **Parallel candidates:** Slices [M, O] can run in parallel when their
-  `blocked_by` lists are satisfied
-
-Start with the first unblocked slice. All slices are AFK — proceed autonomously.
+For certified projects, run Step 2a (Create Slice Branch) before Step 4 to ensure
+the correct slice branch is checked out.
 
 ### 2a: Create Slice Branch (certified projects only)
 
@@ -219,8 +295,12 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
     git checkout "$SLICE_BRANCH"
   else
     # Determine parent branch from dependency graph
-    # Read blocked_by from kanban board for this slice
-    BLOCKED_BY_COUNT=$(yq --front-matter=process eval ".slices[] | select(.id == ${SLICE_ID}) | .blocked_by | length" .agents/artifacts/${LABEL}-kanban-board.md | head -1)
+    # Read blocked_by from board.org for this slice
+    BLOCKED_BY=$(awk -v n="$SLICE_ID" '
+      /^\* [A-Z]+ Slice [0-9]+:/ { in_slice = ($4 == n":"); next }
+      in_slice && /^:BLOCKED_BY:/ { $1=""; gsub(/^ +/,"",$0); print; exit }
+    ' "$DIR/board.org")
+    BLOCKED_BY_COUNT=$(echo "$BLOCKED_BY" | awk '{print NF}')
     
     if [ "$BLOCKED_BY_COUNT" -eq 0 ]; then
       # No dependencies: branch from epic
@@ -228,7 +308,7 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
       echo "Created slice branch: $SLICE_BRANCH (from $EPIC_BRANCH)"
     elif [ "$BLOCKED_BY_COUNT" -eq 1 ]; then
       # Single dependency: branch from parent slice's branch
-      PARENT_SLICE=$(yq --front-matter=process eval ".slices[] | select(.id == ${SLICE_ID}) | .blocked_by[0]" .agents/artifacts/${LABEL}-kanban-board.md | head -1)
+      PARENT_SLICE=$(echo "$BLOCKED_BY" | awk '{print $1}')
       PARENT_BRANCH="${EPIC_BRANCH}-s${PARENT_SLICE}"
       
       if ! git show-ref --verify --quiet "refs/heads/$PARENT_BRANCH"; then
@@ -256,56 +336,19 @@ For non-certified projects, continue on the current branch.
 
 ---
 
-## Step 3: Create Progress Artifact (first slice only)
+## Step 3: Mark the Slice DOING
 
-If no progress artifact exists yet:
-
-<!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
-```bash
-# .agents/ is agent state: ignore everything except the shared, tracked files.
-mkdir -p .agents
-[ -f .agents/.gitignore ] || printf '*\n!.gitignore\n!conventions.md\n!review.md\n' > .agents/.gitignore
-```
-<!-- agents-gitignore:end -->
+Set the chosen slice's keyword to `DOING`. The pattern ends in `Slice $N:`, so
+Slice 1 never matches Slice 10:
 
 ```bash
-mkdir -p .agents/artifacts
+BOARD="$DIR/board.org"
+N=<slice number>
+sed -i "s/^\* [A-Z]* Slice $N:/* DOING Slice $N:/" "$BOARD"
+~/.agents/bin/org-check "$BOARD" && grep "^\* [A-Z]* Slice $N:" "$BOARD"
 ```
 
-Write `.agents/artifacts/<LABEL>-impl-progress.md`. The frontmatter `slices:` list is
-the state that Step 13 updates and Step 1 resumes from; the body table is
-display-only:
-
-```yaml
----
-artifact: impl-progress
-ticket: <LABEL>
-skill: build
-status: in_progress
-created: <ISO 8601 timestamp>
-current_slice: <first slice id>
-slices:
-  - id: 1
-    title: <title>
-    status: pending
-    commit: null
-  - id: 2
-    title: <title>
-    status: pending
-    commit: null
----
-
-## Slice Progress
-
-| Slice | Title | Mode | Status | Commit |
-|-------|-------|------|--------|--------|
-| 1 | <title> | afk | pending | — |
-| 2 | <title> | afk | pending | — |
-```
-
-`status` values: `pending`, `in_progress`, `complete`, `skipped`.
-`commit` is the slice's short sha once committed, and the `--fixup` target for
-corrections (Step 12).
+The output must show `* DOING Slice <N>:`; `org-check` must pass before you continue.
 
 ---
 
@@ -512,13 +555,13 @@ require another round.
 ## Step 11: Commit the Slice
 
 Stage the slice's files explicitly (never `git add -A`), then commit with the
-approved message. The subject is the label resolved in Step 1:
+approved message. The subject is the slice title from `board.org`:
 
 ```bash
 git status
 git add <files for this slice>
 git commit -m "$(cat <<'EOF'
-<LABEL>: <what this slice delivers>
+<slice title>
 
 <why this change is needed — the reasoning, context, or problem being solved.
 Pull from the plan's context/rationale. Always present, even for a small change.>
@@ -532,63 +575,65 @@ EOF
 
 If a later slice, the inner review, or the final `@review` corrects work from an
 earlier slice, commit the correction as a fixup against that slice's commit sha
-(recorded in `impl-progress`):
+(recorded in `board.org` under `:COMMIT:` for the relevant slice):
 
 ```bash
 git commit --fixup=<slice sha>
 ```
 
+If `:COMMIT:` is empty, the slice was never committed — ask which commit to target.
 `@ship` autosquashes fixups into their targets before pushing, so history stays one
 commit per slice.
 
 ---
 
-## Step 12: Update Progress Artifact
+## Step 12: Update the Board and STATE.org
 
-Record the slice's `status` and `commit` in the frontmatter and advance
-`current_slice`. Use `--front-matter=process` so `yq` leaves the markdown body
-alone, and `strenv()` because `yq` v4.53 has no `--arg` (plain `yq -i` fails on
-the body's markdown):
-
-```bash
-PROGRESS_FILE=".agents/artifacts/${LABEL}-impl-progress.md"
-COMMIT_SHA=$(git rev-parse --short HEAD)
-export SLICE_ID=<N> NEW_STATUS=complete COMMIT_SHA
-yq --front-matter=process -i '(.slices[] | select((.id | tostring) == strenv(SLICE_ID)) | .status) = strenv(NEW_STATUS)' "$PROGRESS_FILE"
-yq --front-matter=process -i '(.slices[] | select((.id | tostring) == strenv(SLICE_ID)) | .commit) = strenv(COMMIT_SHA)' "$PROGRESS_FILE"
-
-# Point current_slice at the next unblocked slice
-export NEXT_SLICE=<id>
-yq --front-matter=process -i '.current_slice = (strenv(NEXT_SLICE) | tonumber)' "$PROGRESS_FILE"
-```
-
-Keep the display-only body table in sync by hand. Verify the result:
+Mark the slice `DONE` and record its commit. The second `sed` is scoped to the
+range from the slice's heading to the end of its drawer, so it changes only that
+slice's `:COMMIT:` line:
 
 ```bash
-cat .agents/artifacts/${LABEL}-impl-progress.md
+BOARD="$DIR/board.org"
+N=<slice number>
+SHA=$(git rev-parse --short HEAD)
+sed -i "s/^\* [A-Z]* Slice $N:/* DONE Slice $N:/" "$BOARD"
+sed -i "/^\* [A-Z]* Slice $N:/,/^:END:/ s/^:COMMIT:.*/:COMMIT: $SHA/" "$BOARD"
+~/.agents/bin/org-check "$BOARD" && sed -n "/^\* [A-Z]* Slice $N:/,/^:END:/p" "$BOARD"
 ```
 
-Also update `.agents/STATE.md`:
+The output must show `* DONE Slice <N>:` and `:COMMIT: <sha>`. A slice the user
+drops is marked the same way with `SKIPPED` and no commit (first `sed` only).
 
-```yaml
----
-last_updated: <NOW>
-current_branch: <BRANCH>
-position: build — slice <N> committed
----
-## Decisions
-- <decisions made during this slice>
+Then update `.agents/STATE.org`, the repo-wide state, with `POSITION` set to where
+the work stands — for example `build — slice 3 committed (abc1234)`. The block rewrites the keyword
+header — keeping `#+CREATED:` and everything below the header — and creates the file
+with empty `* Decisions` and `* Blockers` sections when it is missing:
 
-## Blockers
-- <if any>
+```bash
+STATE=.agents/STATE.org
+POSITION=<position>
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+CREATED=$(grep -m1 '^#+CREATED:' "$STATE" 2>/dev/null | cut -d' ' -f2)
+BODY=$(sed '1,/^$/d' "$STATE" 2>/dev/null)
+{
+  printf '#+TITLE: State\n#+CREATED: %s\n#+UPDATED: %s\n#+BRANCH: %s\n#+POSITION: %s\n\n' \
+    "${CREATED:-$NOW}" "$NOW" "$(git branch --show-current)" "$POSITION"
+  printf '%s\n' "${BODY:-$(printf '* Decisions\n\n* Blockers')}"
+} > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+~/.agents/bin/org-check "$STATE"
 ```
+
+Add the slice's decisions under `* Decisions` and any blockers under `* Blockers`,
+one `- <YYYY-MM-DD> — <text>` item each, in Org markup (`=path=`, `~code~`, never
+backticks). Run `org-check "$STATE"` again; it must pass.
 
 ---
 
 ## Step 13: Continue to Next Slice
 
-If there are more slices to implement, proceed to the next unblocked slice.
-No context clear or handoff prompt needed — all slices are AFK.
+Run the Step 2 block again to read the next slice from the board. If it reports
+one (`NEXT: <M>`):
 
 For certified projects, return to the epic branch before creating the next slice's branch:
 
@@ -601,22 +646,24 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
 fi
 ```
 
-> "Slice <N> committed. Moving to Slice <M>."
+> "Slice <N> is committed. Moving to Slice <M>."
+
+No context clear or handoff prompt needed — all slices are AFK.
 
 ---
 
 ## Step 14: All Slices Complete
 
-When the last slice is done:
+When the Step 2 block reports `every slice is DONE or SKIPPED` — the board needs no
+further change:
 
-1. Set `status: complete` in the progress artifact frontmatter
-2. Run the full verification suite one final time:
+1. Run the full verification suite one final time:
 
 ```bash
-make check 2>/dev/null || make test 2>/dev/null
+make check 2>/dev/null || make test 2>/dev/null || echo "No check target found"
 ```
 
-3. Update `.agents/STATE.md` with `position: complete`
+2. Update `.agents/STATE.org` with the Step 12 block, `POSITION` set to `build — complete`
 
 Display completion message:
 
@@ -632,6 +679,8 @@ Checks: ✅ passing  (or: ⚠️  see failures above)
 
 Next step: run @review for a risk-routed code review.
 ```
+
+Run `/clear` before `@review` to keep review context focused.
 
 ---
 

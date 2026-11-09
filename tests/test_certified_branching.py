@@ -46,18 +46,41 @@ def _create_test_repo() -> Path:
 
 
 def _create_kanban_board(tmpdir: Path, slices: list[dict]):
-    """Create a kanban board artifact."""
-    artifacts_dir = tmpdir / ".agents" / "artifacts"
+    """Create a board.org artifact in Org format."""
+    artifacts_dir = tmpdir / ".agents" / "artifacts" / "test-work"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    frontmatter = {
-        "artifact": "kanban-board",
-        "ticket": "TEST-1",
-        "slices": slices,
-    }
+    # Build board.org with Org TODO keywords and property drawers
+    lines = [
+        "#+TITLE: Board: Test",
+        "#+CREATED: 2026-01-01T00:00:00Z",
+        "#+TODO: TODO DOING | DONE SKIPPED",
+        "",
+    ]
 
-    board_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n"
-    (artifacts_dir / "TEST-1-kanban-board.md").write_text(board_content)
+    for s in slices:
+        sid = s["id"]
+        title = s["title"]
+        blocked_by = s.get("blocked_by", [])
+        lines.extend(
+            [
+                f"* TODO Slice {sid}: {title}",
+                ":PROPERTIES:",
+                f":SLICE: {sid}",
+                ":MODE: afk",
+                f":BLOCKS:",
+                f":BLOCKED_BY: {' '.join(map(str, blocked_by))}",
+                ":COMMIT:",
+                ":END:",
+                f"Description for slice {sid}.",
+                "",
+                "** Module interfaces",
+                f"- =file{sid}.txt= — Interface for slice {sid}.",
+                "",
+            ]
+        )
+
+    (artifacts_dir / "board.org").write_text("\n".join(lines))
 
 
 def _create_project_yaml(tmpdir: Path, certified: bool):
@@ -99,7 +122,7 @@ def test_certified_project_creates_slice_branch_from_epic():
 
     # Extract and run the snippet
     snippet = _extract_branch_creation_snippet()
-    env_vars = "SLICE_ID=1 LABEL=TEST-1"
+    env_vars = f"SLICE_ID=1 DIR={tmpdir / '.agents' / 'artifacts' / 'test-work'}"
 
     result = subprocess.run(
         ["bash", "-c", f"{env_vars}\n{snippet}"],
@@ -132,7 +155,7 @@ def test_certified_project_slice_with_dependency():
 
     # Create slice 1 branch
     snippet = _extract_branch_creation_snippet()
-    env_vars = "SLICE_ID=1 LABEL=TEST-1"
+    env_vars = f"SLICE_ID=1 DIR={tmpdir / '.agents' / 'artifacts' / 'test-work'}"
     subprocess.run(["bash", "-c", f"{env_vars}\n{snippet}"], cwd=tmpdir, check=True)
 
     # Make a commit on slice 1
@@ -144,7 +167,7 @@ def test_certified_project_slice_with_dependency():
     _run_git(["checkout", "epic-branch"], tmpdir)
 
     # Create slice 2 branch
-    env_vars = "SLICE_ID=2 LABEL=TEST-1"
+    env_vars = f"SLICE_ID=2 DIR={tmpdir / '.agents' / 'artifacts' / 'test-work'}"
     result = subprocess.run(
         ["bash", "-c", f"{env_vars}\n{snippet}"],
         capture_output=True,
@@ -169,7 +192,7 @@ def test_non_certified_project_no_branch_creation():
 
     # Extract and run the snippet
     snippet = _extract_branch_creation_snippet()
-    env_vars = "SLICE_ID=1 LABEL=TEST-1"
+    env_vars = f"SLICE_ID=1 DIR={tmpdir / '.agents' / 'artifacts' / 'test-work'}"
 
     result = subprocess.run(
         ["bash", "-c", f"{env_vars}\n{snippet}"],
@@ -203,7 +226,7 @@ def test_certified_project_rejects_multiple_dependencies():
 
     # Try to create slice 3 (has 2 dependencies)
     snippet = _extract_branch_creation_snippet()
-    env_vars = "SLICE_ID=3 LABEL=TEST-1"
+    env_vars = f"SLICE_ID=3 DIR={tmpdir / '.agents' / 'artifacts' / 'test-work'}"
 
     result = subprocess.run(
         ["bash", "-c", f"{env_vars}\n{snippet}"],
@@ -233,7 +256,7 @@ def test_resume_after_clear():
 
     # Create slice 1 branch
     snippet = _extract_branch_creation_snippet()
-    env_vars = "SLICE_ID=1 LABEL=TEST-1"
+    env_vars = f"SLICE_ID=1 DIR={tmpdir / '.agents' / 'artifacts' / 'test-work'}"
     subprocess.run(["bash", "-c", f"{env_vars}\n{snippet}"], cwd=tmpdir, check=True)
 
     # Simulate /clear: we're still on epic-branch-s1
@@ -241,7 +264,7 @@ def test_resume_after_clear():
     assert current == "epic-branch-s1"
 
     # Now create slice 2 (no deps) - should derive epic from current branch
-    env_vars = "SLICE_ID=2 LABEL=TEST-1"
+    env_vars = f"SLICE_ID=2 DIR={tmpdir / '.agents' / 'artifacts' / 'test-work'}"
     result = subprocess.run(
         ["bash", "-c", f"{env_vars}\n{snippet}"],
         capture_output=True,
