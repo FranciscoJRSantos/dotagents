@@ -1,8 +1,7 @@
 # dotagents
 
 Research-backed agent skills and subagents for software engineering workflows.
-Skills run inside OpenCode or Claude Code and are invoked with `@<skill-id>`;
-`/review` is the one overriding slash command.
+Skills run inside OpenCode or Claude Code and are invoked with `@<skill-id>`.
 
 See [AGENTS.md](AGENTS.md) for the architecture, the artifact chain and the
 `.agents/` conventions. That file is the home for the artifact-chain table; this
@@ -12,19 +11,31 @@ README covers setup and the catalogue.
 
 **Primary (design → ship):**
 ```
-@grill-me → [post to Jira via MCP] → @plan → @implement → /review → @ship
+@spec → @arch → @build → @review → @ship
 ```
+
+This is the **software factory model**: humans own specs/plans (upstream), agents
+own implementation/review (downstream). `@build` runs all slices autonomously —
+no per-slice human gates. `@review` is the HITL point, where risk classification
+determines whether human review is needed. Conversation output is terse (1-3 lines
+of routing); detail lives in artifacts.
 
 **Quick fix (no upfront design):**
 ```
-@implement   # ad-hoc: one goal + one acceptance criterion, one reviewed commit
+@build   # ad-hoc: one goal + one acceptance criterion, one reviewed commit
 @ship
 ```
 
 **Ticket already exists in Jira:**
 ```
-@plan TICKET → @implement → /review → @ship
+@arch TICKET → @build → @review → @ship
 ```
+
+**Certified projects (e.g. HITRUST E1):**
+```
+@arch TICKET → @build → @review → @ship
+```
+Per-slice MRs created automatically when `.agents/project.yaml` contains `certified: true`.
 
 **Session start on unfamiliar code:**
 ```
@@ -47,24 +58,20 @@ updated or removed. Anything else at the destination (e.g.
 Preview any deploy with `make deploy DRY_RUN=1`; `make drift` diffs the repo
 against every deployed location and never copies.
 
-`commands/` is where OpenCode V2 slash commands live. In this repo it holds
-`review`, which overrides the built-in `/review` so there is one canonical review
-trigger, and `log-hours`. Skills themselves need no command file because they are
-invoked with `@<id>`.
+Skills are invoked with `@<id>` and need no command file.
 
 ---
 
 ## Skills
 
-Skills are invoked with `@<id>` (explicit) or matched by description (ambient);
-`/review` is the single slash command kept for compatibility.
+Skills are invoked with `@<id>` (explicit) or matched by description (ambient).
 
 | Skill           | Invocation                            | Purpose                                                                   |
 |-----------------|---------------------------------------|---------------------------------------------------------------------------|
-| `@grill-me`     | `@grill-me [topic]`                   | Stress-test a design through adversarial decision-tree conversation       |
-| `@plan`         | `@plan TICKET`                        | Generate type-aware implementation plan → Jira comment                    |
-| `@implement`    | `@implement`                          | Slice-by-slice TDD with per-slice commits (ad-hoc mode without a plan)    |
-| `/review`       | `/review`                             | Severity-grouped code review vs main                                      |
+| `@spec`         | `@spec [topic]`                       | Stress-test a design through adversarial decision-tree conversation       |
+| `@arch`         | `@arch TICKET`                        | Generate type-aware implementation plan → Jira comment                    |
+| `@build`        | `@build`                              | Autonomous slice-by-slice TDD with per-slice commits (ad-hoc mode without a plan) |
+| `@review`       | `@review`                             | Risk-routed code review vs main (HITL point in factory model)             |
 | `@yagni-review` | `@yagni-review`                       | Over-engineering-only review: find what to delete, one line per finding   |
 | `@debt-ledger`  | `@debt-ledger`                        | Harvest `deferred:` comments into a tracked debt ledger                   |
 | `@ship`         | `@ship`                               | Checks → fresh-review gate → autosquash → push → MR; close artifacts last |
@@ -82,7 +89,7 @@ Primary agents are Tab-switchable during a session. Subagents run in isolated co
 
 | Agent                 | Trigger                                         | Purpose                                                     | Mode     |
 |-----------------------|-------------------------------------------------|-------------------------------------------------------------|----------|
-| `reviewer`            | `/review`, "check my changes", "review !123"    | Code review (own branch or incoming MR). Auto-detects mode. | all      |
+| `reviewer`            | `@review`, "check my changes", "review !123"    | Code review (own branch or incoming MR). Auto-detects mode. | all      |
 | `observer`            | "@observer \<question\>", "@observer update"    | Maintain and explain codebase via codemaps                  | subagent |
 
 ---
@@ -94,7 +101,7 @@ Skills call these CLI tools when available. Install them separately.
 | Tool                 | Used by                        | Purpose                               |
 |----------------------|--------------------------------|---------------------------------------|
 | `glab`               | `@ship`, `reviewer`            | GitLab CLI for MRs and pipelines      |
-| `acli`               | `@plan`                        | Atlassian CLI for Jira                |
+| `acli`               | `@arch`                        | Atlassian CLI for Jira                |
 | `uv` / `poetry`      | `@ship`                        | Python dependency sync                |
 
 ---
@@ -103,13 +110,13 @@ Skills call these CLI tools when available. Install them separately.
 
 **Before implementing — validate the plan:**
 ```
-@plan TICKET
-@implement
+@arch TICKET
+@build
 ```
 
 **Before shipping — validate the pipeline:**
 ```
-/review
+@review
 @ship
 ```
 
@@ -120,9 +127,9 @@ Skills call these CLI tools when available. Install them separately.
 
 **Context hygiene between major steps:**
 ```
-@plan TICKET   → /clear → @implement   # fresh context for implementation
-@implement     → /clear → /review      # fresh context for review
-/review        → /clear → @ship        # fresh context for ship
+@arch TICKET   → /clear → @build        # fresh context for implementation
+@build         → /clear → @review       # fresh context for review
+@review        → /clear → @ship         # fresh context for ship
 ```
 
 ---

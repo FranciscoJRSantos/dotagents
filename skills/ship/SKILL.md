@@ -11,7 +11,7 @@ description: >
 
 Run the full check suite, gate on a review that matches HEAD, autosquash fixups,
 push the branch, and create a merge request. Artifacts close last, so an aborted
-ship never leaves them marked closed. `@ship` does not commit — `@implement`
+ship never leaves them marked closed. `@ship` does not commit — `@build`
 owns per-slice commits (including ad-hoc mode).
 
 ---
@@ -21,11 +21,92 @@ owns per-slice commits (including ad-hoc mode).
 - If MR creation fails because one already exists for the branch (`glab mr create` / `gh pr create`), view it instead of creating a duplicate (`glab mr view` / `gh pr view`) and show the URL to the user.
 - Detect the forge from the `origin` remote before creating an MR — use `gh` for GitHub and `glab` for GitLab. If the matching CLI is missing, report it rather than failing the whole ship.
 - Never use `--no-verify` to bypass a failing pre-commit hook. Fix the underlying issue instead.
-- `@ship` never commits. If the working tree is dirty, stop and send the user to `@implement` (ad-hoc mode) or a manual commit — do not stage or commit here.
+- `@ship` never commits. If the working tree is dirty, stop and send the user to `@build` (ad-hoc mode) or a manual commit — do not stage or commit here.
 - If the branch has no upstream yet, `git push -u origin <BRANCH>` sets it automatically — no separate `git push --set-upstream` needed.
 - The `--target-branch` for the MR is detected from the branch's actual creation point (merge-base), falling back to git-flow naming conventions — never hardcode `main`.
 - If `make type_check` exits 0 but printed type errors to stderr, the Makefile may be suppressing the exit code — check the output text for error patterns, not just the exit code.
 - If a check command is missing (e.g. `make type_check` target not defined), report it as SKIPPED rather than FAIL — the target may simply not exist for this project.
+
+---
+
+## Certified Project Detection
+
+Some projects require per-slice merge requests for compliance (e.g. HITRUST E1
+certification). Detect this by checking for `.agents/project.yaml` with a
+`certified: true` flag:
+
+<!-- project-config-detection:begin — shared verbatim across @ship (2 copies) and @build -->
+```bash
+# Detect certified project — three states: CERTIFIED / STANDARD / UNPARSEABLE
+# Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
+# anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
+if [ -f ".agents/project.yaml" ]; then
+  if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="CERTIFIED_PROJECT"
+  elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="STANDARD_PROJECT"
+  elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
+    LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
+    echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
+    echo "  $LINE" >&2
+    echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
+    exit 1
+  else
+    PROJECT_TYPE="STANDARD_PROJECT"
+  fi
+else
+  PROJECT_TYPE="STANDARD_PROJECT"
+fi
+```
+<!-- project-config-detection:end -->
+
+Use this to adjust behavior: certified projects get per-slice MRs, standard
+projects get a single MR at the end.
+
+---
+
+## Step 0: Prepare Branch (certified projects only)
+
+For certified projects, ensure the correct branch is checked out before running
+verification and review gates. After `@build`'s Step 13, HEAD may be on any slice
+branch; this step normalizes to the epic branch so Steps 1-4 run deterministically.
+
+```bash
+# Detect project type (same snippet as Step 5c, but run early for branch prep)
+if [ -f ".agents/project.yaml" ]; then
+  if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="CERTIFIED_PROJECT"
+  elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="STANDARD_PROJECT"
+  elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
+    LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
+    echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
+    echo "  $LINE" >&2
+    echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
+    exit 1
+  else
+    PROJECT_TYPE="STANDARD_PROJECT"
+  fi
+else
+  PROJECT_TYPE="STANDARD_PROJECT"
+fi
+
+if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
+  CURRENT_BRANCH=$(git branch --show-current)
+  EPIC_BRANCH=$(echo "$CURRENT_BRANCH" | sed -E 's/-s[0-9]+$//')
+  
+  # If on a slice branch, return to epic branch for deterministic verification
+  if [ "$CURRENT_BRANCH" != "$EPIC_BRANCH" ]; then
+    echo "Certified mode: switching from $CURRENT_BRANCH to epic branch $EPIC_BRANCH"
+    git checkout "$EPIC_BRANCH" || {
+      echo "Error: failed to checkout epic branch $EPIC_BRANCH"
+      exit 1
+    }
+  fi
+fi
+```
+
+For non-certified projects, continue on the current branch.
 
 ---
 
@@ -44,7 +125,7 @@ git status --porcelain
 If anything is printed (other than `.agents/` state files, which are untracked
 working state), stop:
 
-> "The working tree is dirty. Commit the work first — `@implement` in ad-hoc mode
+> "The working tree is dirty. Commit the work first — `@build` in ad-hoc mode
 > does this — or commit by hand, then run `@ship` again."
 
 ### 1b. Detect Makefile Targets
@@ -128,7 +209,7 @@ the user fix before proceeding. Do not ship broken code.
 
 Resolve the label and read the review artifact:
 
-<!-- artifact-label:begin — shared verbatim across @plan, @implement, /review, @ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
@@ -140,7 +221,7 @@ REVIEW_FILE=".agents/artifacts/${LABEL}-review-impl.md"
 cat "$REVIEW_FILE" 2>/dev/null
 ```
 
-`/review` records the commit it reviewed as `reviewed_head` in the artifact
+`@review` records the commit it reviewed as `reviewed_head` in the artifact
 frontmatter. Compare it with the current HEAD before deciding:
 
 ```bash
@@ -167,7 +248,7 @@ Act on the result:
 - **FRESH** — proceed.
 - **FIXUPS_ONLY** — show the commits since `reviewed_head` (they are all `fixup!`
   corrections to already-reviewed slices), then proceed.
-- **STALE** — show the commits since `reviewed_head` and ask: re-run `/review` on
+- **STALE** — show the commits since `reviewed_head` and ask: re-run `@review` on
   the new work, or proceed anyway because the changes are pre-approved.
 - **NO_HEAD** — the artifact predates freshness tracking. Treat it like STALE and
   ask.
@@ -274,44 +355,221 @@ the MR.
 
 ### 5c. Create the MR
 
-Build the description from `templates/mr-description.md`, filling each section
-from the plan, the diff, and the review artifact. Include the **Breaking changes**
-section only when the change actually breaks something — omit it otherwise.
+First, detect whether this is a certified project:
 
-**GitHub** (`gh` — note `--body`/`--base`):
+<!-- project-config-detection:begin — shared verbatim across @ship (2 copies) and @build -->
+```bash
+# Detect certified project — three states: CERTIFIED / STANDARD / UNPARSEABLE
+# Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
+# anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
+if [ -f ".agents/project.yaml" ]; then
+  if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="CERTIFIED_PROJECT"
+  elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="STANDARD_PROJECT"
+  elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
+    LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
+    echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
+    echo "  $LINE" >&2
+    echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
+    exit 1
+  else
+    PROJECT_TYPE="STANDARD_PROJECT"
+  fi
+else
+  PROJECT_TYPE="STANDARD_PROJECT"
+fi
+```
+<!-- project-config-detection:end -->
+
+Project type: assigned by the snippet. If it exits 1, @ship aborts — no silent fallback to batched MR.
+
+#### Certified Projects: Per-Slice MRs
+
+For certified projects (e.g. HITRUST E1), create one MR per slice in dependency order:
 
 ```bash
-gh pr create \
-  --title "<TICKET>: <narrative summary>" \
-  --body "$(cat <<'EOF'
-## What
-<bullet points describing what changed>
+if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
+  IMPL_FILE=".agents/artifacts/${LABEL}-impl-progress.md"
+  BOARD_FILE=".agents/artifacts/${LABEL}-kanban-board.md"
+  
+  if [ ! -f "$IMPL_FILE" ]; then
+    echo "Error: impl-progress artifact not found at $IMPL_FILE"
+    echo "Cannot determine slice boundaries for per-slice MRs"
+    exit 1
+  fi
+  
+  if [ ! -f "$BOARD_FILE" ]; then
+    echo "Error: kanban board not found at $BOARD_FILE"
+    echo "Cannot determine slice dependencies for per-slice MRs"
+    exit 1
+  fi
+  
+  # Guard yq availability
+  if ! command -v yq >/dev/null 2>&1; then
+    echo "Error: yq not found — required for certified project MR creation"
+    exit 1
+  fi
+  
+  # Derive epic branch deterministically (handles resume after /clear)
+  EPIC_BRANCH=$(echo "$BRANCH" | sed -E 's/-s[0-9]+$//')
+  
+  # Push the epic branch so it exists on the remote for the first slice's MR base.
+  # The first slice (blocked_by: []) targets $EPIC_BRANCH as its MR base; without
+  # this push, gh pr create --base / glab mr create --target-branch fails with
+  # "base branch not found" on greenfield certified projects.
+  git push -u origin "$EPIC_BRANCH" || {
+    echo "Error: failed to push epic branch $EPIC_BRANCH"
+    exit 1
+  }
+  
+  # Get slice count from frontmatter
+  SLICE_COUNT=$(yq --front-matter=process eval '.slices | length' "$BOARD_FILE" | head -1)
+  case "$SLICE_COUNT" in
+    ''|*[!0-9]*) echo "Error: could not parse slice count from board"; exit 1 ;;
+    0) echo "Error: board has no slices"; exit 1 ;;
+  esac
+  echo "Creating $SLICE_COUNT per-slice MRs"
+  
+  # Collect per-slice failures for summary at the end
+  FAILED_SLICES=""
+  
+  # Iterate through slices in order (1, 2, 3, ...)
+  for i in $(seq 1 $SLICE_COUNT); do
+    # Extract slice metadata from board (dependency info)
+    SLICE_ID=$(yq --front-matter=process eval ".slices[$((i-1))].id" "$BOARD_FILE" | head -1)
+    SLICE_TITLE=$(yq --front-matter=process eval ".slices[$((i-1))].title" "$BOARD_FILE" | head -1)
+    SLICE_DESC=$(yq --front-matter=process eval ".slices[$((i-1))].description // \"\"" "$BOARD_FILE" | head -1)
+    
+    # Derive MR base from blocked_by — respects dependency order
+    BLOCKED_BY=$(yq --front-matter=process eval \
+      ".slices[$((i-1))].blocked_by | join(\",\")" "$BOARD_FILE" | head -1)
+    
+    case "$BLOCKED_BY" in
+      "")   MR_BASE="$EPIC_BRANCH" ;;
+      *,*)  echo "Error: multi-dep slice $SLICE_ID not supported in certified mode"
+            echo "Slice $SLICE_ID has dependencies: $BLOCKED_BY"
+            echo "Certified projects require linear dependency chains"
+            exit 1 ;;
+      *)    MR_BASE="${EPIC_BRANCH}-s${BLOCKED_BY}"
+            if ! git show-ref --verify --quiet "refs/heads/$MR_BASE"; then
+              echo "Error: parent branch $MR_BASE doesn't exist for slice $SLICE_ID"
+              exit 1
+            fi ;;
+    esac
+    
+    # Determine slice branch name
+    SLICE_BRANCH="${EPIC_BRANCH}-s${SLICE_ID}"
+    if ! git show-ref --verify --quiet "refs/heads/$SLICE_BRANCH"; then
+      echo "Error: slice branch $SLICE_BRANCH doesn't exist"
+      exit 1
+    fi
+    
+    echo "Creating MR for Slice $SLICE_ID: $SLICE_TITLE"
+    echo "  Branch: $SLICE_BRANCH → $MR_BASE"
+    
+    # Push the slice branch
+    if ! git push -u origin "$SLICE_BRANCH" 2>/dev/null; then
+      echo "  Warning: failed to push $SLICE_BRANCH — MR may still be creatable if already pushed"
+    fi
+    
+    # Create MR with slice-specific title
+    MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
+    MR_CREATED=false
+    
+    # GitHub
+    if [ "$FORGE" = "github" ]; then
+      if MR_OUTPUT=$(gh pr create \
+        --title "$MR_TITLE" \
+        --body "$(cat <<EOF
+## Slice ${SLICE_ID}: ${SLICE_TITLE}
 
-## Why
-<the reasoning, context, or problem being solved>
+${SLICE_DESC}
 
-## How
-<implementation approach — key decisions, patterns, files touched>
-
-## Test plan
-<how this was verified>
-
-## Breaking changes
-<only if applicable; omit this section otherwise>
+Part of ${LABEL} implementation.
 
 🤖 AI-assisted
 EOF
 )" \
-  --base "$TARGET_BRANCH" \
-  --assignee @me
+        --head "$SLICE_BRANCH" \
+        --base "$MR_BASE" \
+        --assignee @me 2>&1); then
+        MR_CREATED=true
+        echo "  MR created: $MR_OUTPUT"
+      elif echo "$MR_OUTPUT" | grep -qi "already exists"; then
+        # MR already exists — view it instead of failing
+        echo "  MR already exists for $SLICE_BRANCH — viewing:"
+        gh pr view "$SLICE_BRANCH" --json url -q .url 2>/dev/null || \
+          echo "  (could not retrieve existing MR URL)"
+        MR_CREATED=true
+      else
+        echo "  Warning: failed to create MR for slice $SLICE_ID"
+        echo "  Error: $MR_OUTPUT"
+        FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
+      fi
+    # GitLab
+    elif [ "$FORGE" = "gitlab" ]; then
+      if MR_OUTPUT=$(glab mr create \
+        --title "$MR_TITLE" \
+        --description "$(cat <<EOF
+## Slice ${SLICE_ID}: ${SLICE_TITLE}
+
+${SLICE_DESC}
+
+Part of ${LABEL} implementation.
+
+🤖 AI-assisted
+EOF
+)" \
+        --source-branch "$SLICE_BRANCH" \
+        --target-branch "$MR_BASE" \
+        --assignee @me 2>&1); then
+        MR_CREATED=true
+        echo "  MR created: $MR_OUTPUT"
+      elif echo "$MR_OUTPUT" | grep -qi "already exists\|merge request already exists"; then
+        # MR already exists — view it instead of failing
+        echo "  MR already exists for $SLICE_BRANCH — viewing:"
+        glab mr view "$SLICE_BRANCH" 2>/dev/null || \
+          echo "  (could not retrieve existing MR URL)"
+        MR_CREATED=true
+      else
+        echo "  Warning: failed to create MR for slice $SLICE_ID"
+        echo "  Error: $MR_OUTPUT"
+        FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
+      fi
+    else
+      echo "  Warning: unknown forge — cannot create MR for slice $SLICE_ID automatically"
+      echo "  Create manually: $SLICE_BRANCH → $MR_BASE (title: $MR_TITLE)"
+      FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
+    fi
+  done
+  
+  # Summary
+  if [ -n "$FAILED_SLICES" ]; then
+    echo ""
+    echo "Warning: some per-slice MRs were not created: $FAILED_SLICES"
+    echo "Create them manually or re-run @ship after fixing the issues above."
+  else
+    echo "All per-slice MRs created"
+  fi
+fi
 ```
 
-**GitLab** (`glab` — note `--description`/`--target-branch`):
+#### Standard Projects: Single MR
+
+For non-certified projects, create a single MR as before:
 
 ```bash
-glab mr create \
-  --title "<TICKET>: <narrative summary>" \
-  --description "$(cat <<'EOF'
+if [ "$PROJECT_TYPE" = "STANDARD_PROJECT" ]; then
+  # Build the description from templates/mr-description.md, filling each section
+  # from the plan, the diff, and the review artifact. Include the **Breaking changes**
+  # section only when the change actually breaks something — omit it otherwise.
+
+  # GitHub (gh — note --body/--base):
+  if [ "$FORGE" = "github" ]; then
+    gh pr create \
+      --title "<TICKET>: <narrative summary>" \
+      --body "$(cat <<'EOF'
 ## What
 <bullet points describing what changed>
 
@@ -330,15 +588,49 @@ glab mr create \
 🤖 AI-assisted
 EOF
 )" \
-  --target-branch "$TARGET_BRANCH" \
-  --assignee @me
+      --base "$TARGET_BRANCH" \
+      --assignee @me
+  # GitLab (glab — note --description/--target-branch):
+  elif [ "$FORGE" = "gitlab" ]; then
+    glab mr create \
+      --title "<TICKET>: <narrative summary>" \
+      --description "$(cat <<'EOF'
+## What
+<bullet points describing what changed>
+
+## Why
+<the reasoning, context, or problem being solved>
+
+## How
+<implementation approach — key decisions, patterns, files touched>
+
+## Test plan
+<how this was verified>
+
+## Breaking changes
+<only if applicable; omit this section otherwise>
+
+🤖 AI-assisted
+EOF
+)" \
+      --target-branch "$TARGET_BRANCH" \
+      --assignee @me
+  fi
+  
+  Show the MR URL when done.
+fi
+
+# Catch-all: if PROJECT_TYPE is neither CERTIFIED nor STANDARD, something went wrong
+if [ "$PROJECT_TYPE" != "CERTIFIED_PROJECT" ] && [ "$PROJECT_TYPE" != "STANDARD_PROJECT" ]; then
+  echo "Error: PROJECT_TYPE is unset or has unexpected value: '$PROJECT_TYPE'"
+  echo "This indicates the detection snippet was skipped or PROJECT_TYPE was cleared."
+  exit 1
+fi
 ```
 
 **If the forge is unknown or its CLI is missing:** do not fail the ship. Report
 the branch and detected target branch, then tell the user to open the MR manually
 against `$TARGET_BRANCH`.
-
-Show the MR URL when done.
 
 ---
 

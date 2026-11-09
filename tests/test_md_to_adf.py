@@ -1,14 +1,14 @@
-"""Tests for skills/plan/md_to_adf.py.
+"""Tests for skills/arch/md_to_adf.py.
 
-The converter turns the known subset of markdown produced by /plan's templates into
+The converter turns the known subset of markdown produced by /arch's templates into
 Atlassian Document Format (ADF) JSON. These tests pin the cases that used to hang the
-converter or that /plan relies on.
+converter or that /arch relies on.
 """
 
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "plan"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "arch"))
 
 import md_to_adf  # noqa: E402
 
@@ -65,7 +65,10 @@ def test_lists():
     bullet_items = nodes[0]["content"]
     ordered_items = nodes[1]["content"]
     assert [i["content"][0]["content"][0]["text"] for i in bullet_items] == ["a", "b"]
-    assert [i["content"][0]["content"][0]["text"] for i in ordered_items] == ["one", "two"]
+    assert [i["content"][0]["content"][0]["text"] for i in ordered_items] == [
+        "one",
+        "two",
+    ]
 
 
 def test_bold_and_code_inline():
