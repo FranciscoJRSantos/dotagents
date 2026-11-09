@@ -161,7 +161,8 @@ For certified projects, each slice gets its own branch based on the dependency g
 # SLICE_ID=<first unblocked slice id from Step 2>
 
 # Detect certified project — shared snippet with @ship
-# Three states: CERTIFIED / STANDARD / UNPARSEABLE; exits 1 on unparseable
+<!-- project-config-detection:begin — shared verbatim across @ship (2 copies) and @build -->
+# Detect certified project — three states: CERTIFIED / STANDARD / UNPARSEABLE
 # Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
 # anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
 if [ -f ".agents/project.yaml" ]; then
@@ -181,6 +182,7 @@ if [ -f ".agents/project.yaml" ]; then
 else
   PROJECT_TYPE="STANDARD_PROJECT"
 fi
+<!-- project-config-detection:end -->
 
 if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
   # Derive epic branch by stripping -s<N> suffix (handles resume after /clear)

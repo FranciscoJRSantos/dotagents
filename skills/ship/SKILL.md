@@ -35,16 +35,16 @@ Some projects require per-slice merge requests for compliance (e.g. HITRUST E1
 certification). Detect this by checking for `.agents/project.yaml` with a
 `certified: true` flag:
 
-<!-- project-config-detection:begin — shared verbatim across @ship and @build -->
+<!-- project-config-detection:begin — shared verbatim across @ship (2 copies) and @build -->
 ```bash
 # Detect certified project — three states: CERTIFIED / STANDARD / UNPARSEABLE
 # Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
 # anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
 if [ -f ".agents/project.yaml" ]; then
   if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
-    echo "CERTIFIED_PROJECT"
+    PROJECT_TYPE="CERTIFIED_PROJECT"
   elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
-    echo "STANDARD_PROJECT"
+    PROJECT_TYPE="STANDARD_PROJECT"
   elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
     LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
     echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
@@ -52,16 +52,61 @@ if [ -f ".agents/project.yaml" ]; then
     echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
     exit 1
   else
-    echo "STANDARD_PROJECT"
+    PROJECT_TYPE="STANDARD_PROJECT"
   fi
 else
-  echo "STANDARD_PROJECT"
+  PROJECT_TYPE="STANDARD_PROJECT"
 fi
 ```
 <!-- project-config-detection:end -->
 
 Use this to adjust behavior: certified projects get per-slice MRs, standard
 projects get a single MR at the end.
+
+---
+
+## Step 0: Prepare Branch (certified projects only)
+
+For certified projects, ensure the correct branch is checked out before running
+verification and review gates. After `@build`'s Step 13, HEAD may be on any slice
+branch; this step normalizes to the epic branch so Steps 1-4 run deterministically.
+
+```bash
+# Detect project type (same snippet as Step 5c, but run early for branch prep)
+if [ -f ".agents/project.yaml" ]; then
+  if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="CERTIFIED_PROJECT"
+  elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
+    PROJECT_TYPE="STANDARD_PROJECT"
+  elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
+    LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
+    echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
+    echo "  $LINE" >&2
+    echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
+    exit 1
+  else
+    PROJECT_TYPE="STANDARD_PROJECT"
+  fi
+else
+  PROJECT_TYPE="STANDARD_PROJECT"
+fi
+
+if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
+  CURRENT_BRANCH=$(git branch --show-current)
+  EPIC_BRANCH=$(echo "$CURRENT_BRANCH" | sed -E 's/-s[0-9]+$//')
+  
+  # If on a slice branch, return to epic branch for deterministic verification
+  if [ "$CURRENT_BRANCH" != "$EPIC_BRANCH" ]; then
+    echo "Certified mode: switching from $CURRENT_BRANCH to epic branch $EPIC_BRANCH"
+    git checkout "$EPIC_BRANCH" || {
+      echo "Error: failed to checkout epic branch $EPIC_BRANCH"
+      exit 1
+    }
+  fi
+fi
+```
+
+For non-certified projects, continue on the current branch.
 
 ---
 
@@ -312,16 +357,16 @@ the MR.
 
 First, detect whether this is a certified project:
 
-<!-- project-config-detection:begin — shared verbatim across @ship and @build -->
+<!-- project-config-detection:begin — shared verbatim across @ship (2 copies) and @build -->
 ```bash
 # Detect certified project — three states: CERTIFIED / STANDARD / UNPARSEABLE
 # Only literal true/True/TRUE count as certified; false/False/FALSE are standard;
 # anything else (quoted strings, yes, on, 1) exits 1 to prevent silent fallback
 if [ -f ".agents/project.yaml" ]; then
   if grep -qE '^certified:[[:space:]]*(true|True|TRUE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
-    echo "CERTIFIED_PROJECT"
+    PROJECT_TYPE="CERTIFIED_PROJECT"
   elif grep -qE '^certified:[[:space:]]*(false|False|FALSE)[[:space:]]*(#.*)?$' .agents/project.yaml; then
-    echo "STANDARD_PROJECT"
+    PROJECT_TYPE="STANDARD_PROJECT"
   elif grep -qE '^certified:[[:space:]]' .agents/project.yaml; then
     LINE=$(grep -E '^certified:' .agents/project.yaml | head -1)
     echo "Error: .agents/project.yaml has certified line but value not recognized:" >&2
@@ -329,15 +374,15 @@ if [ -f ".agents/project.yaml" ]; then
     echo "Only literal true/True/TRUE or false/False/FALSE accepted (no quotes, no 'yes'/'on')." >&2
     exit 1
   else
-    echo "STANDARD_PROJECT"
+    PROJECT_TYPE="STANDARD_PROJECT"
   fi
 else
-  echo "STANDARD_PROJECT"
+  PROJECT_TYPE="STANDARD_PROJECT"
 fi
 ```
 <!-- project-config-detection:end -->
 
-Project type: captured from the snippet output. If the snippet exits 1, @ship aborts — no silent fallback to batched MR.
+Project type: assigned by the snippet. If it exits 1, @ship aborts — no silent fallback to batched MR.
 
 #### Certified Projects: Per-Slice MRs
 
@@ -369,6 +414,15 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
   # Derive epic branch deterministically (handles resume after /clear)
   EPIC_BRANCH=$(echo "$BRANCH" | sed -E 's/-s[0-9]+$//')
   
+  # Push the epic branch so it exists on the remote for the first slice's MR base.
+  # The first slice (blocked_by: []) targets $EPIC_BRANCH as its MR base; without
+  # this push, gh pr create --base / glab mr create --target-branch fails with
+  # "base branch not found" on greenfield certified projects.
+  git push -u origin "$EPIC_BRANCH" || {
+    echo "Error: failed to push epic branch $EPIC_BRANCH"
+    exit 1
+  }
+  
   # Get slice count from frontmatter
   SLICE_COUNT=$(yq --front-matter=process eval '.slices | length' "$BOARD_FILE" | head -1)
   case "$SLICE_COUNT" in
@@ -376,6 +430,9 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
     0) echo "Error: board has no slices"; exit 1 ;;
   esac
   echo "Creating $SLICE_COUNT per-slice MRs"
+  
+  # Collect per-slice failures for summary at the end
+  FAILED_SLICES=""
   
   # Iterate through slices in order (1, 2, 3, ...)
   for i in $(seq 1 $SLICE_COUNT); do
@@ -412,17 +469,17 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
     echo "  Branch: $SLICE_BRANCH → $MR_BASE"
     
     # Push the slice branch
-    git push -u origin "$SLICE_BRANCH" || {
-      echo "Error: failed to push $SLICE_BRANCH"
-      exit 1
-    }
+    if ! git push -u origin "$SLICE_BRANCH" 2>/dev/null; then
+      echo "  Warning: failed to push $SLICE_BRANCH — MR may still be creatable if already pushed"
+    fi
     
     # Create MR with slice-specific title
     MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
+    MR_CREATED=false
     
     # GitHub
     if [ "$FORGE" = "github" ]; then
-      gh pr create \
+      if MR_OUTPUT=$(gh pr create \
         --title "$MR_TITLE" \
         --body "$(cat <<EOF
 ## Slice ${SLICE_ID}: ${SLICE_TITLE}
@@ -436,13 +493,23 @@ EOF
 )" \
         --head "$SLICE_BRANCH" \
         --base "$MR_BASE" \
-        --assignee @me || {
-          echo "Error: failed to create MR for slice $SLICE_ID"
-          exit 1
-        }
+        --assignee @me 2>&1); then
+        MR_CREATED=true
+        echo "  MR created: $MR_OUTPUT"
+      elif echo "$MR_OUTPUT" | grep -qi "already exists"; then
+        # MR already exists — view it instead of failing
+        echo "  MR already exists for $SLICE_BRANCH — viewing:"
+        gh pr view "$SLICE_BRANCH" --json url -q .url 2>/dev/null || \
+          echo "  (could not retrieve existing MR URL)"
+        MR_CREATED=true
+      else
+        echo "  Warning: failed to create MR for slice $SLICE_ID"
+        echo "  Error: $MR_OUTPUT"
+        FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
+      fi
     # GitLab
     elif [ "$FORGE" = "gitlab" ]; then
-      glab mr create \
+      if MR_OUTPUT=$(glab mr create \
         --title "$MR_TITLE" \
         --description "$(cat <<EOF
 ## Slice ${SLICE_ID}: ${SLICE_TITLE}
@@ -456,18 +523,35 @@ EOF
 )" \
         --source-branch "$SLICE_BRANCH" \
         --target-branch "$MR_BASE" \
-        --assignee @me || {
-          echo "Error: failed to create MR for slice $SLICE_ID"
-          exit 1
-        }
+        --assignee @me 2>&1); then
+        MR_CREATED=true
+        echo "  MR created: $MR_OUTPUT"
+      elif echo "$MR_OUTPUT" | grep -qi "already exists\|merge request already exists"; then
+        # MR already exists — view it instead of failing
+        echo "  MR already exists for $SLICE_BRANCH — viewing:"
+        glab mr view "$SLICE_BRANCH" 2>/dev/null || \
+          echo "  (could not retrieve existing MR URL)"
+        MR_CREATED=true
+      else
+        echo "  Warning: failed to create MR for slice $SLICE_ID"
+        echo "  Error: $MR_OUTPUT"
+        FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
+      fi
     else
-      echo "Error: unknown forge — cannot create per-slice MRs automatically"
-      echo "Create MRs manually: $SLICE_BRANCH → $MR_BASE"
-      exit 1
+      echo "  Warning: unknown forge — cannot create MR for slice $SLICE_ID automatically"
+      echo "  Create manually: $SLICE_BRANCH → $MR_BASE (title: $MR_TITLE)"
+      FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
     fi
   done
   
-  echo "All per-slice MRs created"
+  # Summary
+  if [ -n "$FAILED_SLICES" ]; then
+    echo ""
+    echo "Warning: some per-slice MRs were not created: $FAILED_SLICES"
+    echo "Create them manually or re-run @ship after fixing the issues above."
+  else
+    echo "All per-slice MRs created"
+  fi
 fi
 ```
 
@@ -534,6 +618,13 @@ EOF
   fi
   
   Show the MR URL when done.
+fi
+
+# Catch-all: if PROJECT_TYPE is neither CERTIFIED nor STANDARD, something went wrong
+if [ "$PROJECT_TYPE" != "CERTIFIED_PROJECT" ] && [ "$PROJECT_TYPE" != "STANDARD_PROJECT" ]; then
+  echo "Error: PROJECT_TYPE is unset or has unexpected value: '$PROJECT_TYPE'"
+  echo "This indicates the detection snippet was skipped or PROJECT_TYPE was cleared."
+  exit 1
 fi
 ```
 

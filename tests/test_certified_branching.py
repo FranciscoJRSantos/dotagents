@@ -81,7 +81,12 @@ def _extract_branch_creation_snippet() -> str:
         re.DOTALL,
     )
     assert match, "Step 2a snippet not found in build/SKILL.md"
-    return match.group(1)
+    snippet = match.group(1)
+
+    # Strip HTML comment markers (they're for documentation, not bash execution)
+    snippet = re.sub(r"<!--.*?-->", "", snippet, flags=re.DOTALL)
+
+    return snippet
 
 
 def test_certified_project_creates_slice_branch_from_epic():
@@ -244,12 +249,12 @@ def test_resume_after_clear():
         cwd=tmpdir,
     )
 
-    # This should fail because we're on a slice branch, not epic
-    # The snippet should detect this and either handle it or error
-    # For now, we expect it to try to create epic-branch-s1-s2 (wrong)
-    # After the fix, it should strip -s1 and create from epic-branch
-    if result.returncode == 0:
-        rc, branches = _run_git(["branch", "--list", "epic-branch-s2"], tmpdir)
-        # After fix: should create epic-branch-s2 from epic-branch (not epic-branch-s1-s2)
-        assert "epic-branch-s2" in branches
-        assert "epic-branch-s1-s2" not in branches
+    # This should succeed — the snippet derives the epic branch by stripping -s1
+    # and creates epic-branch-s2 from epic-branch (not epic-branch-s1-s2)
+    assert result.returncode == 0, (
+        f"Snippet should succeed when resuming from a slice branch: {result.stderr}"
+    )
+    rc, branches = _run_git(["branch", "--list", "epic-branch-s2"], tmpdir)
+    # Should create epic-branch-s2 from epic-branch (not epic-branch-s1-s2)
+    assert "epic-branch-s2" in branches
+    assert "epic-branch-s1-s2" not in branches

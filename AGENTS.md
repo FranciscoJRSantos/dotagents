@@ -77,8 +77,11 @@ When not certified (default):
 - `@ship` creates one MR at the end
 
 The detection uses a shared snippet (`<!-- project-config-detection:begin -->`)
-embedded in both `@build` and `@ship`. Only literal `true`/`True`/`TRUE` values
-are recognized; quoted strings and YAML 1.1 variants (`yes`, `on`) are not.
+embedded in `@build` and `@ship` (three copies total — two in `@ship`, one in
+`@build`; kept byte-identical and enforced by
+`test_all_three_snippets_are_byte_identical` in
+`tests/test_project_config_detection.py`). Only literal `true`/`True`/`TRUE`
+values are recognized; quoted strings and YAML 1.1 variants (`yes`, `on`) are not.
 
 ## Project State
 

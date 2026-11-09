@@ -33,10 +33,33 @@ def _extract_snippet(skill_file: Path) -> str:
     return match.group(1)
 
 
+def _extract_all_snippets(skill_file: Path) -> list[str]:
+    """Extract all project-config-detection snippets from a skill file."""
+    text = skill_file.read_text()
+    # Try to extract with ```bash wrapper first (for @ship)
+    snippets = re.findall(
+        r"<!-- project-config-detection:begin.*?-->\s*```bash\s*\n(.*?)```\s*<!-- project-config-detection:end -->",
+        text,
+        re.DOTALL,
+    )
+    if snippets:
+        return snippets
+
+    # If no ```bash wrapper found, extract without wrapper (for @build 2a section)
+    return re.findall(
+        r"<!-- project-config-detection:begin.*?-->\s*(.*?)\s*<!-- project-config-detection:end -->",
+        text,
+        re.DOTALL,
+    )
+
+
 def _run_snippet(
     snippet: str, project_yaml_content: str | None
 ) -> tuple[int, str, str]:
     """Run the snippet in a temp dir. Returns (returncode, stdout, stderr)."""
+    # The snippet assigns PROJECT_TYPE instead of echoing it, so append an echo
+    # to capture the variable for assertion
+    snippet_with_echo = snippet + '\necho "$PROJECT_TYPE"'
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
         if project_yaml_content is not None:
@@ -44,7 +67,7 @@ def _run_snippet(
             agents_dir.mkdir()
             (agents_dir / "project.yaml").write_text(project_yaml_content)
         result = subprocess.run(
-            ["bash", "-c", snippet],
+            ["bash", "-c", snippet_with_echo],
             capture_output=True,
             text=True,
             cwd=tmpdir,
@@ -75,6 +98,31 @@ def test_snippet_exists_in_ship_skill():
     """The snippet must be present in @ship's SKILL.md."""
     snippet = _extract_snippet(SHIP_SKILL)
     assert len(snippet) > 0
+
+
+def test_all_three_snippets_are_byte_identical():
+    """All three copies (2 in @ship, 1 in @build) must be byte-identical."""
+    ship_snippets = _extract_all_snippets(SHIP_SKILL)
+    assert len(ship_snippets) == 2, (
+        f"@ship should have 2 copies of the detection snippet, found {len(ship_snippets)}"
+    )
+
+    build_skill = REPO_ROOT / "skills" / "build" / "SKILL.md"
+    build_snippets = _extract_all_snippets(build_skill)
+    assert len(build_snippets) == 1, (
+        f"@build should have 1 copy of the detection snippet, found {len(build_snippets)}"
+    )
+
+    # Normalize trailing whitespace before comparing (markdown extraction varies)
+    normalized = [s.rstrip() for s in ship_snippets + build_snippets]
+
+    # All three must be byte-identical (after normalization)
+    assert normalized[0] == normalized[1], (
+        "@ship's two copies of the detection snippet differ"
+    )
+    assert normalized[0] == normalized[2], (
+        "@ship and @build copies of the detection snippet differ"
+    )
 
 
 # --- CERTIFIED_PROJECT cases ---
