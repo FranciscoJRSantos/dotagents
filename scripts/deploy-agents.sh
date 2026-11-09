@@ -7,7 +7,6 @@
 #
 # Modes:
 #   --md-only        Top-level *.md files (for ~/.config/opencode/agents/)
-#   --partials-only  partials/ only (for ~/.agents/)
 #   --claude         Generated Claude Code variants (frontmatter rewritten)
 #
 #   --emit           Generate the Claude variants into <out-dir> and exit.
@@ -82,11 +81,6 @@ case "$MODE" in
     mapfile -t MD_FILES < <(find "$SOURCE_DIR" -maxdepth 1 -name "*.md" -print | sort)
     ITEMS+=("${MD_FILES[@]}")
     ;;
-  --partials-only)
-    if [ -d "$SOURCE_DIR/partials" ]; then
-      ITEMS+=("$SOURCE_DIR/partials")
-    fi
-    ;;
   --claude)
     STAGING="$(mktemp -d)"
     trap 'rm -rf "$STAGING"' EXIT
@@ -95,7 +89,7 @@ case "$MODE" in
     ITEMS+=("${GEN_FILES[@]}")
     ;;
   *)
-    echo "ERROR unknown mode '${MODE:-<none>}' (use --md-only, --partials-only or --claude)" >&2
+    echo "ERROR unknown mode '${MODE:-<none>}' (use --md-only or --claude)" >&2
     exit 2
     ;;
 esac

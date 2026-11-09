@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# org-check — flag Markdown leftovers in Org files.
+#
+# Usage: org-check <file.org>...
+#
+# The single definition of a Markdown leftover: a ``` fence, a "#… " heading
+# (a silent comment in Org), **bold**, a ](http link or a `code` span. Skipped:
+# lines inside #+begin_…/#+end_… blocks (any case), and =verbatim= / ~code~ spans
+# (literal in Org; a span must open after whitespace or ([{" and close before
+# whitespace or punctuation, so a stray "a=3 … x=8" hides nothing). A block left
+# unclosed at end of file is reported at its #+begin_ line. Prints file:line: text
+# per hit and exits 1; exits 2 on a missing file.
+set -euo pipefail
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: org-check <file.org>..." >&2
+  exit 2
+fi
+for f in "$@"; do
+  if [ ! -f "$f" ]; then
+    echo "org-check: no such file: $f" >&2
+    exit 2
+  fi
+done
+
+if awk '
+  function strip_spans(s, c,   re) {
+    re = "(^|[[:space:]([{\"])" c "[^[:space:]" c "]([^" c "]*[^[:space:]" c "])?" c "([][:space:].,;:!?)}\"-]|$)"
+    while (match(s, re)) s = substr(s, 1, RSTART - 1) " " substr(s, RSTART + RLENGTH)
+    return s
+  }
+  function unclosed() {
+    if (inblk) { print blkfile ":" blkline ": unclosed block: " blktext; bad = 1 }
+  }
+  FNR == 1 { unclosed(); inblk = 0 }
+  tolower($0) ~ /^[ \t]*#\+begin_/ {
+    inblk = 1; blkfile = FILENAME; blkline = FNR; blktext = $0; next
+  }
+  tolower($0) ~ /^[ \t]*#\+end_/ { inblk = 0; next }
+  inblk { next }
+  {
+    line = strip_spans(strip_spans($0, "="), "~")
+    if (line ~ /^[ \t]*```|^#+ |\*\*[^*]+\*\*|\]\(https?:|`[^`]+`/) {
+      print FILENAME ":" FNR ": " $0; bad = 1
+    }
+  }
+  END { unclosed(); exit bad }
+' "$@"; then
+  exit 0
+fi
+echo "MARKDOWN LEFTOVERS: fix the lines above" >&2
+exit 1

@@ -3,6 +3,19 @@ GLOBAL_SKILLS      := skills
 AGENTS_SRC         := agents
 AGENTS_DIR         ?= $(HOME)/.agents
 
+## Shared scripts skills call (artifact-dir, md2org, org-check, slug) → ~/.agents/bin/.
+## They share ~/.agents/ with agents/partials, and manifest-sync keeps one manifest
+## per target, so both MUST be synced in one call (deploy and drift) — separate calls
+## would delete each other's manifest entries.
+BIN_SRC            := bin
+AGENTS_DIR_ITEMS   := $(AGENTS_SRC)/partials $(BIN_SRC)
+
+## Files that resolve the active work folder: each must call ~/.agents/bin/artifact-dir
+## (checked by lint-agents). The rest of the chain joins as it moves to Org folders;
+## until then it stays under the artifact-label identity check.
+ARTIFACT_DIR_CALLERS := $(GLOBAL_SKILLS)/arch/SKILL.md $(GLOBAL_SKILLS)/build/SKILL.md $(GLOBAL_SKILLS)/review/SKILL.md $(GLOBAL_SKILLS)/ship/SKILL.md \
+  $(GLOBAL_SKILLS)/handoff/SKILL.md
+
 OPENCODE_SKILLS_DIR ?= $(HOME)/.config/opencode/skills
 OPENCODE_AGENTS_DIR  ?= $(HOME)/.config/opencode/agents
 
@@ -27,11 +40,15 @@ else
 RSYNC_DRY :=
 endif
 
-.PHONY: deploy deploy-skills deploy-agents deploy-commands deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
+.PHONY: check-pandoc deploy deploy-skills deploy-agents deploy-commands deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
 
 ## Deploy everything to OpenCode and Claude Code (skills, agents, commands, global rules).
 ## Each target dir keeps a .personal-agents-manifest; only listed items are touched.
-deploy: deploy-skills deploy-agents deploy-commands deploy-global
+deploy: check-pandoc deploy-skills deploy-agents deploy-commands deploy-global
+
+## bin/md2org needs pandoc; fail before anything is deployed or linted without it.
+check-pandoc:
+	@command -v pandoc >/dev/null 2>&1 || { echo "FAIL  pandoc not found — install it (dnf install pandoc); bin/md2org needs it"; exit 1; }
 
 ## Skills → ~/.config/opencode/skills/ and ~/.claude/skills/ (agents untouched).
 ## Use this to ship skill changes without clobbering live agents with a stale repo.
@@ -48,8 +65,8 @@ deploy-commands:
 	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_COMMANDS_DIR)" $(COMMANDS_SRC)/*
 
 ## Agents → ~/.config/opencode/agents/ (source md), ~/.claude/agents/ (generated
-## Claude variants) and ~/.agents/ (partials only; canonical review rules).
-deploy-agents:
+## Claude variants) and ~/.agents/ (partials and the shared bin/ scripts).
+deploy-agents: check-pandoc
 	@echo "Deploying agents to $(OPENCODE_AGENTS_DIR)..."
 	@DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh "$(AGENTS_SRC)" "$(OPENCODE_AGENTS_DIR)" --md-only
 	@if [ -L "$(CLAUDE_AGENTS_DIR)" ]; then \
@@ -62,8 +79,8 @@ deploy-agents:
 	fi
 	@echo "Deploying generated Claude agent variants to $(CLAUDE_AGENTS_DIR)..."
 	@DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh "$(AGENTS_SRC)" "$(CLAUDE_AGENTS_DIR)" --claude
-	@echo "Deploying agent partials to $(AGENTS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh "$(AGENTS_SRC)" "$(AGENTS_DIR)" --partials-only
+	@echo "Deploying agent partials and bin/ scripts to $(AGENTS_DIR)..."
+	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(AGENTS_DIR)" $(AGENTS_DIR_ITEMS)
 
 ## Global rules → ~/.config/opencode/AGENTS.md
 ## The source file is gitignored; skips with a warning when it is absent.
@@ -84,7 +101,7 @@ drift:
 	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(OPENCODE_COMMANDS_DIR)" $(COMMANDS_SRC)/* || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(OPENCODE_AGENTS_DIR)" --md-only || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(CLAUDE_AGENTS_DIR)" --claude || status=1; \
-	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(AGENTS_DIR)" --partials-only || status=1; \
+	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(AGENTS_DIR)" $(AGENTS_DIR_ITEMS) || status=1; \
 	if [ ! -f "$(GLOBAL_AGENTS_SRC)" ]; then \
 		echo "INFO  $(GLOBAL_AGENTS_SRC) not found — skipping global rules drift"; \
 	elif [ ! -f "$(GLOBAL_AGENTS_DEST)" ]; then \
@@ -106,12 +123,12 @@ list-skills:
 list-agents:
 	@echo "Agents ($(shell ls $(AGENTS_SRC)/*.md 2>/dev/null | wc -l)):" && ls $(AGENTS_SRC)/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null || echo "(no agents)"
 
-## Run the converter unit tests (pytest from mise python)
+## Run the converter and bin/ script tests (pytest from mise python)
 test:
 	python3 -m pytest -q tests/
 
 ## Validate skills, agents and docs, then run the tests
-lint: lint-skills lint-agents lint-docs test
+lint: check-pandoc lint-skills lint-agents lint-docs test
 
 ## Validate SKILL.md files before deploying
 lint-skills:
@@ -190,11 +207,21 @@ lint-agents:
 	fi; \
 	rm -rf "$$tmp"; \
 	echo ""; \
+	echo "=== Checking skills resolve work folders via ~/.agents/bin/artifact-dir ==="; \
+	for f in $(ARTIFACT_DIR_CALLERS); do \
+		if grep -qF '~/.agents/bin/artifact-dir' "$$f"; then \
+			echo "OK    $$f calls artifact-dir"; \
+		else \
+			echo "FAIL  $$f does not call ~/.agents/bin/artifact-dir"; \
+			ok=false; \
+		fi; \
+	done; \
+	echo ""; \
 	echo "=== Checking shared artifact-label snippet ==="; \
 	tmp=$$(mktemp -d); \
 	ref=""; \
 	label_ok=true; \
-	for f in "$(GLOBAL_SKILLS)/arch/SKILL.md" "$(GLOBAL_SKILLS)/build/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(AGENTS_SRC)/reviewer.md"; do \
+	for f in "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md"; do \
 		out="$$tmp/$$(printf '%s' "$$f" | tr '/' '_')"; \
 		sed -n '/artifact-label:begin/,/artifact-label:end/p' "$$f" > "$$out"; \
 		if [ ! -s "$$out" ]; then \
@@ -317,7 +344,7 @@ lint-docs:
 	echo ""; \
 	echo "=== Checking artifact chain integrity ==="; \
 	chain=$$(mktemp); \
-	grep -oP '\x60<LABEL>-[^\x60]+\x60\s*\|\s*\x60[@/]\w+' AGENTS.md 2>/dev/null | sed 's/\x60//g' > "$$chain"; \
+	grep -oP '\x60<slug>/[^\x60]+\x60\s*\|\s*\x60[@/]\w+' AGENTS.md 2>/dev/null | sed 's/\x60//g' > "$$chain"; \
 	while IFS='|' read -r artifact written_by; do \
 		[ -n "$$artifact" ] || continue; \
 		artifact=$$(echo "$$artifact" | xargs); \
