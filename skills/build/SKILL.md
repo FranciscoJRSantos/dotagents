@@ -176,9 +176,10 @@ EOF
 Write Org markup in the placeholders (`=path=`, `~code~`), never backticks. Then:
 
 1. Skip Step 2 — the board has one slice.
-2. Use the acceptance criterion where the loop would otherwise use the slice's
+2. Sync the board to `todowrite` via [Visual Progress Sync](#visual-progress-sync) — one slice, status `pending`.
+3. Use the acceptance criterion where the loop would otherwise use the slice's
    module interfaces.
-3. Run Steps 3–14 with slice `N = 1` and `mode: afk`.
+4. Run Steps 3–14 with slice `N = 1` and `mode: afk`.
 
 Ad-hoc mode skips only the plan. It never skips the quality gate, TDD, the inner
 `reviewer` pass, or the per-slice commit.
@@ -225,6 +226,8 @@ awk '
 ' "$DIR/board.org"
 ```
 
+Then sync the board state to OpenCode's visual progress via [Visual Progress Sync](#visual-progress-sync).
+
 Show the listing to the user, then act on `NEXT:`:
 
 - **`DOING — resume`** — announce and skip directly to Step 4:
@@ -238,8 +241,35 @@ Show the listing to the user, then act on `NEXT:`:
   > "Implementation appears already complete. Run `@review` to review the changes,
   > or read `plan.org` and `board.org` for a full overview."
 
-For certified projects, run Step 2a (Create Slice Branch) before Step 4 to ensure
-the correct slice branch is checked out.
+## Visual Progress Sync
+
+After reading the board state, sync it to OpenCode's built-in `todowrite` tool for visual progress in the UI. This is a one-way sync: `board.org` remains the persistent, version-controlled source of truth; `todowrite` provides ephemeral visual feedback during the session.
+
+Map each slice's Org keyword to a todowrite status:
+- `TODO` → `pending`
+- `DOING` → `in_progress`
+- `DONE` → `completed`
+- `SKIPPED` → `cancelled`
+
+Call `todowrite` with the slice list:
+
+```javascript
+await tools.todowrite({
+  todos: [
+    { content: "Slice 1: Shared scripts", status: "completed" },
+    { content: "Slice 2: @spec/@arch write Org", status: "in_progress" },
+    { content: "Slice 3: @build uses board.org", status: "pending" }
+  ]
+});
+```
+
+The slice titles come from the `* TODO Slice N: <title>` headings in `board.org`. Parse them from the Step 2 awk output you already see.
+
+This sync runs:
+- After Step 2 (initial board display)
+- After Step 12 (each slice marked DONE)
+
+`board.org` is the source of truth. If `todowrite` fails or is unavailable, continue — the board state is what matters.
 
 ### 2a: Create Slice Branch (certified projects only)
 
@@ -628,6 +658,8 @@ Add the slice's decisions under `* Decisions` and any blockers under `* Blockers
 one `- <YYYY-MM-DD> — <text>` item each, in Org markup (`=path=`, `~code~`, never
 backticks). Run `org-check "$STATE"` again; it must pass.
 
+Then sync the updated board state to `todowrite` via [Visual Progress Sync](#visual-progress-sync), so the UI reflects the slice now being DONE.
+
 ---
 
 ## Step 13: Continue to Next Slice
@@ -657,7 +689,9 @@ No context clear or handoff prompt needed — all slices are AFK.
 When the Step 2 block reports `every slice is DONE or SKIPPED` — the board needs no
 further change:
 
-1. Run the full verification suite one final time:
+1. Sync the final board state to `todowrite` via [Visual Progress Sync](#visual-progress-sync) — all slices should now be `completed` or `cancelled`.
+
+2. Run the full verification suite one final time:
 
 ```bash
 make check 2>/dev/null || make test 2>/dev/null || echo "No check target found"
