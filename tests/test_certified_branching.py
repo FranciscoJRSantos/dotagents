@@ -281,3 +281,106 @@ def test_resume_after_clear():
     # Should create epic-branch-s2 from epic-branch (not epic-branch-s1-s2)
     assert "epic-branch-s2" in branches
     assert "epic-branch-s1-s2" not in branches
+
+
+# ── @ship certified MR loop: Org board slice metadata ──────────────────
+
+
+def _extract_org_slice_emitter() -> str:
+    """Extract the Org slice-record emitter awk from ship/SKILL.md's certified loop."""
+    skill_file = REPO_ROOT / "skills" / "ship" / "SKILL.md"
+    text = skill_file.read_text()
+
+    match = re.search(r"done < <\(awk '\n(.*?)\n    ' \"\$BOARD_FILE\"\)", text, re.DOTALL)
+    assert match, "org slice emitter not found in ship/SKILL.md"
+    return match.group(1)
+
+
+def _run_slice_emitter(board_org: Path) -> str:
+    """Run the emitter against a board.org; return stdout (tab-separated records)."""
+    emitter = _extract_org_slice_emitter()
+    result = subprocess.run(
+        ["bash", "-c", "awk '" + emitter + "' \"$1\"", "awk-prog", str(board_org)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def test_slice_emitter_reads_ids_from_slice_not_position():
+    """The certified MR loop drives from :SLICE:, so renumbered boards stay correct."""
+    tmpdir = Path(tempfile.mkdtemp())
+    board = tmpdir / "board.org"
+    board.write_text(
+        "#+TITLE: Board: Test\n"
+        "#+CREATED: 2026-01-01T00:00:00Z\n"
+        "#+TODO: TODO DOING | DONE SKIPPED\n"
+        "\n"
+        "* TODO Slice 1: Alpha\n"
+        ":PROPERTIES:\n"
+        ":SLICE: 1\n"
+        ":MODE: hitl\n"
+        ":BLOCKS:\n"
+        ":BLOCKED_BY:\n"
+        ":COMMIT:\n"
+        ":END:\n"
+        "alpha desc\n"
+        "\n"
+        "* TODO Slice 2: Beta\n"
+        ":PROPERTIES:\n"
+        ":SLICE: 2\n"
+        ":MODE: afk\n"
+        ":BLOCKS:\n"
+        ":BLOCKED_BY: 1\n"
+        ":COMMIT:\n"
+        ":END:\n"
+        "beta desc\n"
+        "\n"
+        "* TODO Slice 7: Gamma\n"
+        "# a numbering gap: the old positional loop found nothing here\n"
+        ":PROPERTIES:\n"
+        ":SLICE: 7\n"
+        ":MODE: afk\n"
+        ":BLOCKS:\n"
+        ":BLOCKED_BY: 2\n"
+        ":COMMIT:\n"
+        ":END:\n"
+        "gamma desc\n"
+        "\n"
+        "* Notes\n"
+        ":PROPERTIES:\n"
+        ":DECOY: must not leak into any record\n"
+        ":END:\n"
+    )
+
+    out = _run_slice_emitter(board)
+    lines = out.splitlines()
+    # Ids come from :SLICE: (including the gap), titles from the headings,
+    # blocked_by from the drawers, non-slice headings close a record.
+    assert lines == [
+        "1\tAlpha\thitl\t",
+        "2\tBeta\tafk\t1",
+        "7\tGamma\tafk\t2",
+    ], lines
+
+
+def test_slice_emitter_defaults_mode_to_afk():
+    """A slice without :MODE: is treated as afk, like @arch's default."""
+    tmpdir = Path(tempfile.mkdtemp())
+    board = tmpdir / "board.org"
+    board.write_text(
+        "#+TITLE: Board: Test\n"
+        "#+CREATED: 2026-01-01T00:00:00Z\n"
+        "\n"
+        "* DOING Slice 3: Bare slice\n"
+        ":PROPERTIES:\n"
+        ":SLICE: 3\n"
+        ":BLOCKS:\n"
+        ":BLOCKED_BY:\n"
+        ":COMMIT: abc1234\n"
+        ":END:\n"
+    )
+
+    out = _run_slice_emitter(board)
+    assert out == "3\tBare slice\tafk\t\n"

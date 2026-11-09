@@ -219,7 +219,7 @@ DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
 - **`ARTIFACT_DIR=…`** (`rc` 0) — set `ARTIFACT_DIR="$DIR"` and read `review.org` from there.
 - **`NONE`**, **`AMBIGUOUS: …`**, or **`NOT FOUND: <slug>`** — fall back to the legacy flat-file path using the branch-derived label.
 
-<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @review and @ship (legacy fallback path); make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
@@ -454,7 +454,7 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
   
   # Detect board format (Org vs Markdown/YAML)
   if [[ "$BOARD_FILE" == *.org ]]; then
-    # Parse board.org with awk — extract slice count and metadata
+    # Parse board.org with awk — extract slice count
     SLICE_COUNT=$(awk '/^\* [A-Z]+ Slice [0-9]+:/ { count++ } END { print count+0 }' "$BOARD_FILE")
     
     case "$SLICE_COUNT" in
@@ -466,26 +466,16 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
     # Collect per-slice failures for summary at the end
     FAILED_SLICES=""
     
-    # Iterate through slices in order (1, 2, 3, ...)
-    for i in $(seq 1 $SLICE_COUNT); do
-      # Extract slice metadata from board.org
-      SLICE_ID=$i
-      SLICE_TITLE=$(awk -v n="$i" '
-        /^\* [A-Z]+ Slice [0-9]+:/ { in_slice = ($4 == n":"); next }
-        in_slice && /^\*\*/ { exit }
-        in_slice { if (!title) { sub(/^\* [A-Z]+ Slice [0-9]+: */, ""); title=$0 } }
-        END { print title }
-      ' "$BOARD_FILE")
-      
-      SLICE_MODE=$(awk -v n="$i" '
-        /^\* [A-Z]+ Slice [0-9]+:/ { in_slice = ($4 == n":"); next }
-        in_slice && /^:MODE:/ { $1=""; gsub(/^ +/,"",$0); print; exit }
-      ' "$BOARD_FILE")
-      
-      BLOCKED_BY=$(awk -v n="$i" '
-        /^\* [A-Z]+ Slice [0-9]+:/ { in_slice = ($4 == n":"); next }
-        in_slice && /^:BLOCKED_BY:/ { $1=""; gsub(/^ +/,"",$0); print; exit }
-      ' "$BOARD_FILE")
+    # Iterate slices in document order. Each record is one line:
+    #   SLICE_ID<TAB>SLICE_TITLE<TAB>SLICE_MODE<TAB>BLOCKED_BY
+    # The id comes from the :SLICE: property (heading number as fallback), so
+    # the loop never assumes slice numbers match document positions — a renumber
+    # or a gap in the board headings cannot silently mis-target MRs.
+    while IFS=$'\t' read -r SLICE_ID SLICE_TITLE SLICE_MODE BLOCKED_BY; do
+      [ -n "$SLICE_ID" ] || {
+        echo "Error: slice record without :SLICE:"
+        exit 1
+      }
       
       # Derive MR base from blocked_by — respects dependency order
       case "$BLOCKED_BY" in
@@ -518,7 +508,6 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
       
       # Create MR with slice-specific title
       MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
-      MR_CREATED=false
       
       # GitHub
       if [ "$FORGE" = "github" ]; then
@@ -537,14 +526,12 @@ EOF
           --head "$SLICE_BRANCH" \
           --base "$MR_BASE" \
           --assignee @me 2>&1); then
-          MR_CREATED=true
           echo "  MR created: $MR_OUTPUT"
         elif echo "$MR_OUTPUT" | grep -qi "already exists"; then
           # MR already exists — view it instead of failing
           echo "  MR already exists for $SLICE_BRANCH — viewing:"
           gh pr view "$SLICE_BRANCH" --json url -q .url 2>/dev/null || \
             echo "  (could not retrieve existing MR URL)"
-          MR_CREATED=true
         else
           echo "  Warning: failed to create MR for slice $SLICE_ID"
           echo "  Error: $MR_OUTPUT"
@@ -567,14 +554,12 @@ EOF
           --source-branch "$SLICE_BRANCH" \
           --target-branch "$MR_BASE" \
           --assignee @me 2>&1); then
-          MR_CREATED=true
           echo "  MR created: $MR_OUTPUT"
         elif echo "$MR_OUTPUT" | grep -qi "already exists\|merge request already exists"; then
           # MR already exists — view it instead of failing
           echo "  MR already exists for $SLICE_BRANCH — viewing:"
           glab mr view "$SLICE_BRANCH" 2>/dev/null || \
             echo "  (could not retrieve existing MR URL)"
-          MR_CREATED=true
         else
           echo "  Warning: failed to create MR for slice $SLICE_ID"
           echo "  Error: $MR_OUTPUT"
@@ -585,7 +570,24 @@ EOF
         echo "  Create manually: $SLICE_BRANCH → $MR_BASE (title: $MR_TITLE)"
         FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
       fi
-    done
+    done < <(awk '
+      function flush() {
+        if (cur) printf "%s\t%s\t%s\t%s\n", sid[cur], ttl[cur], (mode[cur] == "" ? "afk" : mode[cur]), bb[cur]
+      }
+      /^\* [A-Z]+ Slice [0-9]+:/ {
+        flush()
+        cur++
+        sid[cur] = $4; sub(/:$/, "", sid[cur])
+        ttl[cur] = $0; sub(/^\* [A-Z]+ Slice [0-9]+: */, "", ttl[cur])
+        mode[cur] = ""; bb[cur] = ""
+        next
+      }
+      /^\* / { flush(); cur = 0; next }
+      cur && /^:SLICE:/ { if ($2 != "") sid[cur] = $2; next }
+      cur && /^:MODE:/ { mode[cur] = $2; next }
+      cur && /^:BLOCKED_BY:/ { $1 = ""; bb[cur] = $0; sub(/^[ \t]+/, "", bb[cur]); next }
+      END { flush() }
+    ' "$BOARD_FILE")
     
     # Summary
     if [ -n "$FAILED_SLICES" ]; then
@@ -673,7 +675,6 @@ EOF
       
       # Create MR with slice-specific title
       MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
-      MR_CREATED=false
       
       # GitHub
       if [ "$FORGE" = "github" ]; then
@@ -692,13 +693,11 @@ EOF
           --head "$SLICE_BRANCH" \
           --base "$MR_BASE" \
           --assignee @me 2>&1); then
-          MR_CREATED=true
           echo "  MR created: $MR_OUTPUT"
         elif echo "$MR_OUTPUT" | grep -qi "already exists"; then
           echo "  MR already exists for $SLICE_BRANCH — viewing:"
           gh pr view "$SLICE_BRANCH" --json url -q .url 2>/dev/null || \
             echo "  (could not retrieve existing MR URL)"
-          MR_CREATED=true
         else
           echo "  Warning: failed to create MR for slice $SLICE_ID"
           echo "  Error: $MR_OUTPUT"
@@ -721,13 +720,11 @@ EOF
           --source-branch "$SLICE_BRANCH" \
           --target-branch "$MR_BASE" \
           --assignee @me 2>&1); then
-          MR_CREATED=true
           echo "  MR created: $MR_OUTPUT"
         elif echo "$MR_OUTPUT" | grep -qi "already exists\|merge request already exists"; then
           echo "  MR already exists for $SLICE_BRANCH — viewing:"
           glab mr view "$SLICE_BRANCH" 2>/dev/null || \
             echo "  (could not retrieve existing MR URL)"
-          MR_CREATED=true
         else
           echo "  Warning: failed to create MR for slice $SLICE_ID"
           echo "  Error: $MR_OUTPUT"
@@ -907,3 +904,4 @@ fi
 - Never force-push unless the user explicitly asks
 - If the branch has no upstream yet, `-u origin <BRANCH>` sets it automatically
 - Close the plan, kanban and progress artifacts only after the push and MR succeed
+
