@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# slug — turn free text into a work-folder slug.
+#
+# Usage: slug "<text>"
+#
+# Lowercase ASCII, non-alphanumeric runs collapsed to one hyphen, at most 40
+# characters, cut on a hyphen (word boundary) when possible. Exits 1 when
+# nothing usable is left.
+set -euo pipefail
+
+MAX=40
+text="${1:?usage: slug \"<text>\"}"
+
+s="$(printf '%s' "$text" | iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null || printf '%s' "$text")"
+s="$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+
+if [ "${#s}" -gt "$MAX" ]; then
+  cut="${s:0:MAX}"
+  if [ "${s:MAX:1}" != "-" ] && [[ "$cut" == *-* ]]; then
+    cut="${cut%-*}"
+  fi
+  s="${cut%-}"
+fi
+
+if [ -z "$s" ]; then
+  echo "slug: no letters or digits in '$text'" >&2
+  exit 1
+fi
+printf '%s\n' "$s"

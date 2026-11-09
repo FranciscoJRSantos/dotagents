@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# artifact-dir — resolve the work folder under .agents/artifacts/.
+#
+# Usage: artifact-dir [slug]     (run from the project root)
+#
+# Order: explicit slug → ticket key in the branch matched against #+TICKET:
+# (active folders first, archived only when no active one matches) → the only
+# folder in .agents/artifacts/. Steps 1–2 also search .agents/archive/ and move
+# a match back (REOPENED). Step 3 never looks there. Several matches in one step
+# give AMBIGUOUS rather than a silent pick.
+#
+# stdout, exit 0:  [REOPENED: <slug>]  then  ARTIFACT_DIR=.agents/artifacts/<slug>
+# stdout, exit 1:  NONE | AMBIGUOUS: <slug> <slug>... | NOT FOUND: <slug>
+# stderr:          LEGACY LAYOUT warning when flat legacy files exist (read-only)
+set -euo pipefail
+
+A=.agents/artifacts
+R=.agents/archive
+SLUG="${1:-}"
+
+legacy=false
+if [ -f .agents/STATE.md ] ||
+   [ -n "$(find "$A" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | head -1)" ] ||
+   [ -n "$(find .agents/handoffs -mindepth 1 -maxdepth 1 -type f -name '*.md' 2>/dev/null | head -1)" ]; then
+  legacy=true
+fi
+if [ "$legacy" = true ]; then
+  echo "LEGACY LAYOUT: run scripts/agents-layout.sh reorganize . (legacy files are ignored)" >&2
+fi
+
+resolve() {
+  local slug="$1"
+  if [ ! -d "$A/$slug" ] && [ -d "$R/$slug" ]; then
+    mkdir -p "$A"
+    mv "$R/$slug" "$A/$slug"
+    echo "REOPENED: $slug"
+  fi
+  echo "ARTIFACT_DIR=$A/$slug"
+  exit 0
+}
+
+# 1. explicit slug
+if [ -n "$SLUG" ]; then
+  if [ -d "$A/$SLUG" ] || [ -d "$R/$SLUG" ]; then
+    resolve "$SLUG"
+  fi
+  echo "NOT FOUND: $SLUG"
+  exit 1
+fi
+
+# folders_with_ticket <root> — sorted folder names under <root> holding #+TICKET: $TICKET
+folders_with_ticket() {
+  grep -lx "#+TICKET: $TICKET" "$1"/*/*.org 2>/dev/null |
+    xargs -r -n1 dirname | xargs -r -n1 basename | sort -u || true
+}
+
+# one_or_ambiguous <names> — resolve a single name; report several as AMBIGUOUS
+one_or_ambiguous() {
+  case "$(printf '%s' "$1" | grep -c . || true)" in
+    0) return 0 ;;
+    1) resolve "$1" ;;
+    *) echo "AMBIGUOUS: $(printf '%s' "$1" | tr '\n' ' ')"; exit 1 ;;
+  esac
+}
+
+# 2. branch ticket via #+TICKET: — active folders first, archived only if none
+TICKET="$(git branch --show-current 2>/dev/null | grep -oE '[A-Z]+-[0-9]+' | head -1 || true)"
+if [ -n "$TICKET" ]; then
+  one_or_ambiguous "$(folders_with_ticket "$A")"
+  one_or_ambiguous "$(folders_with_ticket "$R")"
+fi
+
+# 3. the only active folder
+one_or_ambiguous "$(find "$A" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort || true)"
+echo "NONE"
+exit 1

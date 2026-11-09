@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# md2org — convert a Markdown artifact to Org and stamp its keywords.
+#
+# Usage: md2org <in.md|-> <out.org> [KEY=VAL...]
+#
+# The only place the pandoc flags live. Writes #+TITLE: and #+CREATED: first,
+# then the other KEY=VAL pairs in the given order, as #+KEY: VAL lines. KEY must
+# be uppercase; an empty VAL is omitted (never written as null). TITLE defaults
+# to the first "# " heading, else the input file name (the output name for
+# stdin); CREATED defaults to now (UTC, ISO 8601). An empty TITLE= or CREATED=
+# means "use the default", since both keywords are always written. Runs org-check on the result and exits 1 on leftovers
+# (the file is kept so the lines can be fixed); exits 2 on bad arguments.
+set -euo pipefail
+
+usage() { echo "usage: md2org <in.md|-> <out.org> [KEY=VAL...]" >&2; exit 2; }
+
+[ "$#" -ge 2 ] || usage
+IN="$1" OUT="$2"
+shift 2
+
+if ! command -v pandoc >/dev/null 2>&1; then
+  echo "md2org: pandoc not found on PATH" >&2
+  exit 127
+fi
+
+TITLE="" CREATED=""
+declare -a EXTRA=()
+for kv in "$@"; do
+  key="${kv%%=*}" val="${kv#*=}"
+  if [[ "$kv" != *=* || ! "$key" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+    echo "md2org: bad keyword argument '$kv' (want KEY=VAL, KEY uppercase)" >&2
+    exit 2
+  fi
+  case "$key" in
+    TITLE) TITLE="$val" ;;
+    CREATED) CREATED="$val" ;;
+    *) [ -n "$val" ] && EXTRA+=("#+$key: $val") ;;
+  esac
+done
+
+SRC="$(mktemp)"
+trap 'rm -f "$SRC" "$SRC.org"' EXIT
+if [ "$IN" = "-" ]; then
+  cat > "$SRC"
+elif [ -f "$IN" ]; then
+  cat "$IN" > "$SRC"
+else
+  echo "md2org: no such file: $IN" >&2
+  exit 2
+fi
+
+if [ -z "$TITLE" ]; then
+  TITLE="$(sed -n 's/^# \(.*[^ ]\) *$/\1/p' "$SRC" | head -1)"
+fi
+if [ -z "$TITLE" ] && [ "$IN" = "-" ]; then
+  TITLE="$(basename "$OUT" .org)"
+elif [ -z "$TITLE" ]; then
+  TITLE="$(basename "$IN" .md)"
+fi
+CREATED="${CREATED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+
+pandoc -f gfm-gfm_auto_identifiers -t org --wrap=preserve "$SRC" -o "$SRC.org"
+
+mkdir -p "$(dirname "$OUT")"
+{
+  printf '#+TITLE: %s\n' "$TITLE"
+  printf '#+CREATED: %s\n' "$CREATED"
+  [ "${#EXTRA[@]}" -eq 0 ] || printf '%s\n' "${EXTRA[@]}"
+  printf '\n'
+  cat "$SRC.org"
+} > "$OUT"
+
+"$(dirname "$0")/org-check" "$OUT"
