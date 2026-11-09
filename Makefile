@@ -35,7 +35,7 @@ endif
 
 .PHONY: check-pandoc deploy deploy-skills deploy-agents deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
 
-## Deploy everything to OpenCode and Claude Code (skills, agents, commands, global rules).
+## Deploy everything to OpenCode and Claude Code (skills, agents, global rules).
 ## Each target dir keeps a .personal-agents-manifest; only listed items are touched.
 deploy: check-pandoc deploy-skills deploy-agents deploy-global
 

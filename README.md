@@ -43,7 +43,7 @@ Per-slice MRs created automatically when `.agents/project.yaml` contains `certif
 
 ```bash
 git clone <repo>
-make deploy   # sync skills, agents and commands to OpenCode and Claude Code
+make deploy   # sync skills and agents to OpenCode and Claude Code
 ```
 
 `make deploy` is manifest-based: each target dir keeps a
@@ -141,7 +141,7 @@ it up. `make drift` diffs the deployed copy against `global/AGENTS.md`.
 
 | Command              | What it does                                                                                     |
 |----------------------|--------------------------------------------------------------------------------------------------|
-| `make deploy`        | Sync skills + agents + commands + global rules to OpenCode and Claude Code                       |
+| `make deploy`        | Sync skills + agents + global rules to OpenCode and Claude Code                                |
 | `make deploy-skills` | Sync skills to OpenCode + Claude only — leaves live agents untouched                             |
 | `make deploy-global` | Install `global/AGENTS.md` → `~/.config/opencode/AGENTS.md` (gitignored source; skips if absent) |
 | `make drift`         | Read-only diff of the repo against every deployed location (never copies)                        |

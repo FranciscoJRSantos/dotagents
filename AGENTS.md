@@ -8,7 +8,7 @@ skills/<name>/SKILL.md   ← one skill per file
 agents/<name>.md         ← one agent per file
 ```
 
-`make deploy` syncs skills, agents and commands to OpenCode and Claude Code,
+`make deploy` syncs skills and agents to OpenCode and Claude Code,
 generating the Claude Code agent variants and installing the shared `partials/` to
 `~/.agents/`.
 Personal global rules live at `global/AGENTS.md` (gitignored; template

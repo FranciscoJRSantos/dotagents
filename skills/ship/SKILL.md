@@ -638,26 +638,24 @@ mkdir -p .agents
 Move the entire work folder to `.agents/archive/`:
 
 ```bash
-if [ -n "${ARTIFACT_DIR:-}" ]; then
-  SLUG=$(basename "$ARTIFACT_DIR")
-  ARCHIVE_DIR=".agents/archive/$SLUG"
-  DATE_SUFFIX=$(date -u +%Y%m%d)
-  
-  # Handle collision: append -YYYYMMDD suffix if archive already exists
-  if [ -d "$ARCHIVE_DIR" ]; then
-    ARCHIVE_DIR="${ARCHIVE_DIR}-${DATE_SUFFIX}"
-    # If still collides (same-day re-ship), append a counter
-    COUNTER=1
-    while [ -d "${ARCHIVE_DIR}-${COUNTER}" ]; do
-      COUNTER=$((COUNTER + 1))
-    done
-    ARCHIVE_DIR="${ARCHIVE_DIR}-${COUNTER}"
-  fi
-  
-  mkdir -p .agents/archive
-  mv "$ARTIFACT_DIR" "$ARCHIVE_DIR"
-  echo "Archived: $ARTIFACT_DIR → $ARCHIVE_DIR"
+SLUG=$(basename "$ARTIFACT_DIR")
+ARCHIVE_DIR=".agents/archive/$SLUG"
+DATE_SUFFIX=$(date -u +%Y%m%d)
+
+# Handle collision: append -YYYYMMDD suffix if archive already exists
+if [ -d "$ARCHIVE_DIR" ]; then
+  ARCHIVE_DIR="${ARCHIVE_DIR}-${DATE_SUFFIX}"
+  # If still collides (same-day re-ship), append a counter
+  COUNTER=1
+  while [ -d "${ARCHIVE_DIR}-${COUNTER}" ]; do
+    COUNTER=$((COUNTER + 1))
+  done
+  ARCHIVE_DIR="${ARCHIVE_DIR}-${COUNTER}"
 fi
+
+mkdir -p .agents/archive
+mv "$ARTIFACT_DIR" "$ARCHIVE_DIR"
+echo "Archived: $ARTIFACT_DIR → $ARCHIVE_DIR"
 ```
 
 The folder is moved, not copied, so the artifacts are no longer in `.agents/artifacts/` and `artifact-dir` will not find them unless explicitly reopened.
@@ -675,5 +673,5 @@ The folder is moved, not copied, so the artifacts are no longer in `.agents/arti
 - Always detect the forge (GitHub vs GitLab) from the origin remote — never assume one
 - Never force-push unless the user explicitly asks
 - If the branch has no upstream yet, `-u origin <BRANCH>` sets it automatically
-- Close the plan, kanban and progress artifacts only after the push and MR succeed
+- Archive the work folder only after the push and MR succeed
 

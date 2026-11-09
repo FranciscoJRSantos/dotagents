@@ -157,7 +157,7 @@ Write the review report to the artifact regardless (it's the source of truth).
 
 ## Step 6: Write the Artifact
 
-Determine the label for the fallback path. When Step 1 resolved a folder (`ARTIFACT_DIR` set), write `review.org` there. Otherwise, fall back to the legacy flat-file path using the branch-derived label:
+Determine the artifact location. When Step 1 resolved a folder (`ARTIFACT_DIR` set), write `review.org` there. Otherwise, write to `.agents/artifacts/<slug>/review.org` using the slug from the invocation, or abort if no slug was provided.
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
 ```bash
@@ -179,7 +179,7 @@ Derive the status from the reviewer's findings:
 - `STATUS=clean` — no Critical or Warning findings
 - `STATUS=has-findings` — any Critical or Warning items present
 
-### 6a. With artifact folder (preferred path)
+### With artifact folder
 
 When `ARTIFACT_DIR` is set, write the reviewer's Markdown report to a temp file and convert it with `md2org`:
 
@@ -200,7 +200,7 @@ again.
 
 The resulting `review.org` has `#+REVIEWED_HEAD:` and `#+STATUS:` keywords at the top, followed by the report body. `@ship` reads these keywords, checks that `REVIEWED_HEAD` still matches HEAD (or that only `fixup!` commits follow), and blocks on `STATUS: has-findings`.
 
-If `ARTIFACT_DIR` is not set (the argument was a scope, not a slug), write the review report to `.agents/artifacts/<slug>/review.org` using the slug from the invocation, or abort if no slug was provided.
+If `ARTIFACT_DIR` is not set (the argument was a scope, not a slug), derive the slug from the current branch name and write the review report to `.agents/artifacts/<slug>/review.org`, or abort if a slug cannot be derived.
 
 Run `/clear` before `@ship` to start the ship step in a fresh context window.
 
