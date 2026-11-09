@@ -266,6 +266,23 @@ class TestReorganize:
         # File should still be in place
         assert (artifacts / "main-plan.md").exists()
 
+    def test_reorganize_does_not_overwrite_existing_destination(self, agents_dir):
+        """reorganize skips a legacy file whose archive destination already exists."""
+        artifacts = agents_dir / "artifacts"
+        artifacts.mkdir()
+        (artifacts / "feat-app-plan.md").write_text("---\nstatus: active\n")
+        dest = agents_dir / "archive" / "feat-app" / "plan.md"
+        dest.parent.mkdir(parents=True)
+        dest.write_text("already archived\n")
+
+        result = run_layout(["reorganize", str(agents_dir)], cwd=agents_dir.parent)
+        assert result.returncode == 0
+
+        # Destination content is untouched, source is left in place, skip counted
+        assert dest.read_text() == "already archived\n"
+        assert (artifacts / "feat-app-plan.md").exists()
+        assert "Files skipped: 1" in result.stdout
+
     def test_reorganize_removes_empty_directories(self, agents_dir):
         """reorganize removes empty artifacts/ and handoffs/ directories after moving files."""
         artifacts = agents_dir / "artifacts"

@@ -152,6 +152,26 @@ cmd_scan() {
     fi
 }
 
+# move_one <src> <dest> — move a legacy file into its archive destination,
+# never overwriting what is already there (bumps the moved/skipped counters).
+move_one() {
+    local src="$1"
+    local dest="$2"
+
+    if [[ -e "$dest" ]]; then
+        echo -e "  ${YELLOW}skipped (destination exists): ${dest#"$agents_dir"/}${NC}"
+        skipped=$((skipped + 1))
+        return
+    fi
+    if [[ $dry_run -eq 1 ]]; then
+        moved=$((moved + 1))
+        return
+    fi
+    mkdir -p "$(dirname "$dest")"
+    mv "$src" "$dest"
+    moved=$((moved + 1))
+}
+
 # Determine the destination for a file during reorganization
 get_destination() {
     local file="$1"
@@ -281,19 +301,13 @@ cmd_reorganize() {
             if [[ -f "$file" ]]; then
                 local dest
                 dest="$(get_destination "$file" "$agents_dir")"
-                local dest_dir
-                dest_dir="$(dirname "$dest")"
 
                 local relative_src="${file#$agents_dir/}"
                 local relative_dest="${dest#$agents_dir/}"
 
                 echo -e "  ${GREEN}$relative_src${NC} → $relative_dest"
 
-                if [[ $dry_run -eq 0 ]]; then
-                    mkdir -p "$dest_dir"
-                    mv "$file" "$dest"
-                fi
-                moved=$((moved + 1))
+                move_one "$file" "$dest"
             fi
         done < <(find "$agents_dir/artifacts" -maxdepth 1 -type f -print0 2>/dev/null)
 
@@ -309,19 +323,13 @@ cmd_reorganize() {
             if [[ -f "$file" ]]; then
                 local dest
                 dest="$(get_destination "$file" "$agents_dir")"
-                local dest_dir
-                dest_dir="$(dirname "$dest")"
 
                 local relative_src="${file#$agents_dir/}"
                 local relative_dest="${dest#$agents_dir/}"
 
                 echo -e "  ${GREEN}$relative_src${NC} → $relative_dest"
 
-                if [[ $dry_run -eq 0 ]]; then
-                    mkdir -p "$dest_dir"
-                    mv "$file" "$dest"
-                fi
-                moved=$((moved + 1))
+                move_one "$file" "$dest"
             fi
         done < <(find "$agents_dir/handoffs" -maxdepth 1 -type f -name "*.md" -print0 2>/dev/null)
 
@@ -335,19 +343,13 @@ cmd_reorganize() {
     if [[ -f "$agents_dir/STATE.md" ]]; then
         local dest
         dest="$(get_destination "$agents_dir/STATE.md" "$agents_dir")"
-        local dest_dir
-        dest_dir="$(dirname "$dest")"
 
         local relative_src="STATE.md"
         local relative_dest="${dest#$agents_dir/}"
 
         echo -e "  ${GREEN}$relative_src${NC} → $relative_dest"
 
-        if [[ $dry_run -eq 0 ]]; then
-            mkdir -p "$dest_dir"
-            mv "$agents_dir/STATE.md" "$dest"
-        fi
-        moved=$((moved + 1))
+        move_one "$agents_dir/STATE.md" "$dest"
     fi
 
     echo
