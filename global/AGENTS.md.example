@@ -32,7 +32,7 @@
 
 ## Execution Rules
 - **Analysis Paralysis Guard:** After 5+ consecutive read/grep/glob calls with no write/edit/bash action, stop and state in one sentence what's blocking you, then either write code or ask the user for the missing information.
-- **Deferral Convention:** Mark deliberate shortcuts with `deferred:` comments in code — format: `# deferred: <ceiling>, <upgrade path>`. Example: `# deferred: global lock, per-account locks if throughput matters`. Run `/debt-ledger` to harvest all deferrals into a tracked ledger.
+- **Deferral Convention:** Mark deliberate shortcuts with `deferred:` comments in code — format: `# deferred: <ceiling>, <upgrade path>`. Example: `# deferred: global lock, per-account locks if throughput matters`.
 - Edit skills and agents only in their source repository, never in the deployed locations BECAUSE the next deploy overwrites anything changed outside the repo.
 
 ## Commit Messages
@@ -47,7 +47,7 @@
 
 ## Self-correction
 - If a codemap, artifact, or convention you rely on is stale, update it before finishing the task.
-- When the user corrects you, append the rule to `.agents/conventions.md` under `## Learned (unreviewed)` (create it if absent) as "Always/Never [action] BECAUSE [reason] — <date>, <context>". Never replace or merge existing rules. Run `/learn review` to keep, edit, promote or drop the unreviewed ones; promotion writes your global rules source and deploys it.
+- When the user corrects you, append the rule to `.agents/conventions.md` under `## Learned (unreviewed)` (create it if absent) as "Always/Never [action] BECAUSE [reason] — <date>, <context>". Never replace or merge existing rules.
 - Never delete or weaken tests to make them pass. If a test looks wrong, stop and ask.
 - Run the project's checks (lint, types, tests) before claiming a task done — never assume they pass.
 

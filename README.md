@@ -37,11 +37,6 @@ of routing); detail lives in artifacts.
 ```
 Per-slice MRs created automatically when `.agents/project.yaml` contains `certified: true`.
 
-**Session start on unfamiliar code:**
-```
-@codemap
-```
-
 ---
 
 ## Setup
@@ -72,11 +67,7 @@ Skills are invoked with `@<id>` (explicit) or matched by description (ambient).
 | `@arch`         | `@arch TICKET`                        | Generate type-aware implementation plan → Jira comment                    |
 | `@build`        | `@build`                              | Autonomous slice-by-slice TDD with per-slice commits (ad-hoc mode without a plan) |
 | `@review`       | `@review`                             | Risk-routed code review vs main (HITL point in factory model)             |
-| `@yagni-review` | `@yagni-review`                       | Over-engineering-only review: find what to delete, one line per finding   |
-| `@debt-ledger`  | `@debt-ledger`                        | Harvest `deferred:` comments into a tracked debt ledger                   |
 | `@ship`         | `@ship`                               | Checks → fresh-review gate → autosquash → push → MR; archive work folder last |
-| `@codemap`      | `@codemap`                            | Generate hierarchical architectural codemap of the codebase               |
-| `@learn`        | `@learn [rule]`                       | Capture a correction append-only; `@learn review` prunes and promotes     |
 | `@create-skill` | `@create-skill [skill\|agent] [name]` | Guide creation of new skills and agents using research-backed checklist   |
 | `@handoff`      | `@handoff [focus]`                    | Compact the session into a handoff doc + sync STATE.org for the next agent |
 | `@log-hours`    | `@log-hours [YYYY-MM-DD \| yesterday]` | Draft a day's Toggl entries from history + sessions; write on approval    |
@@ -90,7 +81,6 @@ Primary agents are Tab-switchable during a session. Subagents run in isolated co
 | Agent                 | Trigger                                         | Purpose                                                     | Mode     |
 |-----------------------|-------------------------------------------------|-------------------------------------------------------------|----------|
 | `reviewer`            | `@review`, "check my changes", "review !123"    | Code review (own branch or incoming MR). Auto-detects mode. | all      |
-| `observer`            | "@observer \<question\>", "@observer update"    | Maintain and explain codebase via codemaps                  | subagent |
 
 ---
 
@@ -118,11 +108,6 @@ Skills call these CLI tools when available. Install them separately.
 ```
 @review
 @ship
-```
-
-**Capture a lesson before closing a session:**
-```
-@learn never use bare except clauses because they hide all errors silently
 ```
 
 **Context hygiene between major steps:**

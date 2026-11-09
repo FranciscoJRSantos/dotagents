@@ -200,35 +200,7 @@ again.
 
 The resulting `review.org` has `#+REVIEWED_HEAD:` and `#+STATUS:` keywords at the top, followed by the report body. `@ship` reads these keywords, checks that `REVIEWED_HEAD` still matches HEAD (or that only `fixup!` commits follow), and blocks on `STATUS: has-findings`.
 
-### 6b. Without artifact folder (fallback)
-
-When `ARTIFACT_DIR` is not set (the argument was a scope, not a slug), write the legacy flat-file artifact:
-
-<!-- artifact-label:begin — shared verbatim across @review and @ship (legacy fallback path); make lint-agents checks identity -->
-```bash
-TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
-LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
-```
-<!-- artifact-label:end -->
-
-```bash
-mkdir -p .agents/artifacts
-```
-
-Write `.agents/artifacts/<LABEL>-review-impl.md`:
-
-```yaml
----
-artifact: review-impl
-ticket: <TICKET>
-skill: review
-created: <ISO 8601 timestamp>
-reviewed_head: <REVIEWED_HEAD>
-status: clean        # or: has-findings
----
-```
-
-Followed by the reviewer's full report.
+If `ARTIFACT_DIR` is not set (the argument was a scope, not a slug), write the review report to `.agents/artifacts/<slug>/review.org` using the slug from the invocation, or abort if no slug was provided.
 
 Run `/clear` before `@ship` to start the ship step in a fresh context window.
 

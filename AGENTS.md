@@ -53,8 +53,7 @@ determines whether human review is needed. Conversation output is terse (1-3 lin
 of routing); detail lives in artifacts.
 
 `@build` runs each vertical slice through Explore → RED → GREEN → REFACTOR →
-checks → inner `reviewer` → commit; see `skills/build/SKILL.md`. Run
-`@codemap` first on an unfamiliar codebase — `@observer` keeps the map current.
+checks → inner `reviewer` → commit; see `skills/build/SKILL.md`.
 
 ## Certified Projects
 
@@ -86,8 +85,7 @@ values are recognized; quoted strings and YAML 1.1 variants (`yes`, `on`) are no
 `.agents/STATE.org` carries cross-session context (branch, position, decisions,
 blockers). Work-scoped handoffs live in `<slug>/handoffs/`; standalone handoffs
 (when no work folder is active) go to `.agents/handoffs/`. `.agents/` is
-disposable and self-ignoring; only `.agents/conventions.md` is tracked, where
-captured corrections land for `@learn review`.
+disposable and self-ignoring; only `.agents/conventions.md` is tracked.
 
 ## Review Rules Override
 

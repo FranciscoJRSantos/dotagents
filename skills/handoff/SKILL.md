@@ -81,7 +81,7 @@ Write to `$ARTIFACT_DIR/handoffs/<timestamp>.org` (when a work folder is active)
 - **Context** — references to artifacts/plans/ADRs by path, never duplicated
 - **Next actions** — concrete, ordered, matching the current workflow stage
 - **Suggested skills** — which repo skills to invoke next (`@spec`, `@arch`,
-  `@build`, `@review`, `@ship`, `@codemap`), with the entry point
+  `@build`, `@review`, `@ship`), with the entry point
 - **Redactions** — note anything deliberately omitted for secrecy
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->

@@ -18,12 +18,6 @@ ARTIFACT_DIR_CALLERS := $(GLOBAL_SKILLS)/arch/SKILL.md $(GLOBAL_SKILLS)/build/SK
 OPENCODE_SKILLS_DIR ?= $(HOME)/.config/opencode/skills
 OPENCODE_AGENTS_DIR  ?= $(HOME)/.config/opencode/agents
 
-## OpenCode V2 slash commands. In this repo only `review` (overriding the built-in)
-## and `log-hours` live here: skills are invoked with `@<skill-id>` and need no
-## command shim.
-COMMANDS_SRC         := commands
-OPENCODE_COMMANDS_DIR ?= $(HOME)/.config/opencode/commands
-
 CLAUDE_SKILLS_DIR  ?= $(HOME)/.claude/skills
 CLAUDE_AGENTS_DIR  ?= $(HOME)/.claude/agents
 
@@ -39,11 +33,11 @@ else
 RSYNC_DRY :=
 endif
 
-.PHONY: check-pandoc deploy deploy-skills deploy-agents deploy-commands deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
+.PHONY: check-pandoc deploy deploy-skills deploy-agents deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
 
 ## Deploy everything to OpenCode and Claude Code (skills, agents, commands, global rules).
 ## Each target dir keeps a .personal-agents-manifest; only listed items are touched.
-deploy: check-pandoc deploy-skills deploy-agents deploy-commands deploy-global
+deploy: check-pandoc deploy-skills deploy-agents deploy-global
 
 ## bin/md2org needs pandoc; fail before anything is deployed or linted without it.
 check-pandoc:
@@ -56,12 +50,6 @@ deploy-skills:
 	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/
 	@echo "Deploying skills to $(CLAUDE_SKILLS_DIR)..."
 	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(CLAUDE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/
-
-## OpenCode slash commands → ~/.config/opencode/commands/. Only the overriding
-## `/review` and `log-hours` live here; skills are invoked with `@<skill-id>`.
-deploy-commands:
-	@echo "Deploying commands to $(OPENCODE_COMMANDS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_COMMANDS_DIR)" $(COMMANDS_SRC)/*
 
 ## Agents → ~/.config/opencode/agents/ (source md), ~/.claude/agents/ (generated
 ## Claude variants) and ~/.agents/ (partials and the shared bin/ scripts).
@@ -191,21 +179,6 @@ lint-agents:
 		fi \
 	done; \
 	echo ""; \
-	echo "=== Checking shared codemap state-hash snippet ==="; \
-	tmp=$$(mktemp -d); \
-	sed -n '/codemap-state-hash:begin/,/codemap-state-hash:end/p' "$(GLOBAL_SKILLS)/codemap/SKILL.md" > "$$tmp/skill"; \
-	sed -n '/codemap-state-hash:begin/,/codemap-state-hash:end/p' "$(AGENTS_SRC)/observer.md" > "$$tmp/agent"; \
-	if [ ! -s "$$tmp/skill" ] || [ ! -s "$$tmp/agent" ]; then \
-		echo "FAIL  codemap state-hash snippet missing in /codemap or @observer"; \
-		ok=false; \
-	elif diff -q "$$tmp/skill" "$$tmp/agent" >/dev/null; then \
-		echo "OK    codemap state-hash snippet identical"; \
-	else \
-		echo "FAIL  codemap state-hash snippet differs between /codemap and @observer"; \
-		ok=false; \
-	fi; \
-	rm -rf "$$tmp"; \
-	echo ""; \
 	echo "=== Checking skills resolve work folders via ~/.agents/bin/artifact-dir ==="; \
 	for f in $(ARTIFACT_DIR_CALLERS); do \
 		if grep -qF '~/.agents/bin/artifact-dir' "$$f"; then \
@@ -220,7 +193,7 @@ lint-agents:
 	tmp=$$(mktemp -d); \
 	ref=""; \
 	gi_ok=true; \
-	for f in "$(GLOBAL_SKILLS)/spec/SKILL.md" "$(GLOBAL_SKILLS)/arch/SKILL.md" "$(GLOBAL_SKILLS)/build/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(GLOBAL_SKILLS)/codemap/SKILL.md" "$(GLOBAL_SKILLS)/handoff/SKILL.md" "$(GLOBAL_SKILLS)/learn/SKILL.md" "$(GLOBAL_SKILLS)/debt-ledger/SKILL.md" "$(AGENTS_SRC)/observer.md"; do \
+	for f in "$(GLOBAL_SKILLS)/spec/SKILL.md" "$(GLOBAL_SKILLS)/arch/SKILL.md" "$(GLOBAL_SKILLS)/build/SKILL.md" "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(GLOBAL_SKILLS)/handoff/SKILL.md"; do \
 		out="$$tmp/$$(printf '%s' "$$f" | tr '/' '_')"; \
 		sed -n '/agents-gitignore:begin/,/agents-gitignore:end/p' "$$f" > "$$out"; \
 		if [ ! -s "$$out" ]; then \
