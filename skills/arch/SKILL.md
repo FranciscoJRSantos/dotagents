@@ -4,8 +4,8 @@ description: >
   Generates a type-aware implementation plan with Kanban/DAG vertical slices and
   presents it for approval before writing artifacts. Sources the plan from a Jira
   ticket (@arch PROJ-123) or from a local @spec decision log (@arch <slug>,
-  or @arch with no argument to pick from a list). Produces both a plan artifact and
-  a kanban-board artifact.
+  or @arch with no argument to pick from a list). Produces both plan.org and
+  board.org in the work folder.
   Entry point: @arch PROJ-123 | @arch <slug>
 ---
 

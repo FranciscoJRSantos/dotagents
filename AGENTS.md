@@ -25,21 +25,19 @@ Personal global rules live at `global/AGENTS.md` (gitignored; template
 
 ## Artifact Chain
 
-Skills hand context to each other through `.agents/artifacts/`:
+Skills hand context to each other through `.agents/artifacts/<slug>/`:
 
 | Artifact                    | Written by  | Read by              |
 |-----------------------------|-------------|----------------------|
-| `grill-<slug>-decisions.md` | `@spec`     | `@arch`              |
-| `<LABEL>-plan.md`           | `@arch`     | `@review`, `@ship`   |
-| `<LABEL>-kanban-board.md`   | `@arch`     | `@build`             |
-| `<LABEL>-review-impl.md`    | `@review`   | `@ship`              |
-| `<LABEL>-impl-progress.md`  | `@build`    | `@build` (resume)    |
+| `<slug>/decisions.org`      | `@spec`     | `@arch`              |
+| `<slug>/plan.org`           | `@arch`     | `@review`, `@ship`   |
+| `<slug>/board.org`          | `@arch`     | `@build`             |
+| `<slug>/review.org`         | `@review`   | `@ship`              |
 
-`<LABEL>` is the ticket key when the branch carries one, otherwise the branch
-name with `/` replaced by `-`. Schemas live with their owners: the kanban/plan
-shape in `skills/arch/SKILL.md`, impl-progress in `skills/build/SKILL.md`,
-the decision log in `skills/spec/SKILL.md`, the review report in
-`~/.agents/partials/review-rules.md`, risk classification in
+`<slug>` is the work folder name, resolved by `artifact-dir` (explicit slug, ticket
+key via `#+TICKET:`, or the only active folder). Schemas live with their owners:
+the board shape in `skills/arch/SKILL.md`, the decision log in `skills/spec/SKILL.md`,
+the review report in `~/.agents/partials/review-rules.md`, risk classification in
 `~/.agents/partials/risk-classifier.md`.
 
 ## Workflow
@@ -85,10 +83,11 @@ values are recognized; quoted strings and YAML 1.1 variants (`yes`, `on`) are no
 
 ## Project State
 
-`.agents/STATE.md` carries cross-session context (branch, position, decisions,
-blockers). `.agents/` is disposable and self-ignoring; only
-`.agents/conventions.md` is tracked, where captured corrections land for
-`@learn review`.
+`.agents/STATE.org` carries cross-session context (branch, position, decisions,
+blockers). Work-scoped handoffs live in `<slug>/handoffs/`; standalone handoffs
+(when no work folder is active) go to `.agents/handoffs/`. `.agents/` is
+disposable and self-ignoring; only `.agents/conventions.md` is tracked, where
+captured corrections land for `@learn review`.
 
 ## Review Rules Override
 

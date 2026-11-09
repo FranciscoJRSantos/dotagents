@@ -343,7 +343,7 @@ lint-docs:
 	echo ""; \
 	echo "=== Checking artifact chain integrity ==="; \
 	chain=$$(mktemp); \
-	grep -oP '\x60<LABEL>-[^\x60]+\x60\s*\|\s*\x60[@/]\w+' AGENTS.md 2>/dev/null | sed 's/\x60//g' > "$$chain"; \
+	grep -oP '\x60<slug>/[^\x60]+\x60\s*\|\s*\x60[@/]\w+' AGENTS.md 2>/dev/null | sed 's/\x60//g' > "$$chain"; \
 	while IFS='|' read -r artifact written_by; do \
 		[ -n "$$artifact" ] || continue; \
 		artifact=$$(echo "$$artifact" | xargs); \
