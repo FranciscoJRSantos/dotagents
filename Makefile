@@ -11,8 +11,7 @@ BIN_SRC            := bin
 AGENTS_DIR_ITEMS   := $(AGENTS_SRC)/partials $(BIN_SRC)
 
 ## Files that resolve the active work folder: each must call ~/.agents/bin/artifact-dir
-## (checked by lint-agents). The rest of the chain joins as it moves to Org folders;
-## until then it stays under the artifact-label identity check.
+## (checked by lint-agents).
 ARTIFACT_DIR_CALLERS := $(GLOBAL_SKILLS)/arch/SKILL.md $(GLOBAL_SKILLS)/build/SKILL.md $(GLOBAL_SKILLS)/review/SKILL.md $(GLOBAL_SKILLS)/ship/SKILL.md \
   $(GLOBAL_SKILLS)/handoff/SKILL.md
 
@@ -216,28 +215,6 @@ lint-agents:
 			ok=false; \
 		fi; \
 	done; \
-	echo ""; \
-	echo "=== Checking shared artifact-label snippet ==="; \
-	tmp=$$(mktemp -d); \
-	ref=""; \
-	label_ok=true; \
-	for f in "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md"; do \
-		out="$$tmp/$$(printf '%s' "$$f" | tr '/' '_')"; \
-		sed -n '/artifact-label:begin/,/artifact-label:end/p' "$$f" > "$$out"; \
-		if [ ! -s "$$out" ]; then \
-			echo "FAIL  artifact-label snippet missing in $$f"; \
-			ok=false; label_ok=false; \
-		elif [ -z "$$ref" ]; then \
-			ref="$$out"; \
-		elif ! diff -q "$$ref" "$$out" >/dev/null; then \
-			echo "FAIL  artifact-label snippet differs in $$f"; \
-			ok=false; label_ok=false; \
-		fi; \
-	done; \
-	if [ "$$label_ok" = true ] && [ -n "$$ref" ]; then \
-		echo "OK    artifact-label snippet identical"; \
-	fi; \
-	rm -rf "$$tmp"; \
 	echo ""; \
 	echo "=== Checking shared .agents/.gitignore snippet ==="; \
 	tmp=$$(mktemp -d); \

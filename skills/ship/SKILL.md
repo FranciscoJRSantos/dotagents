@@ -217,18 +217,10 @@ DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
 ```
 
 - **`ARTIFACT_DIR=…`** (`rc` 0) — set `ARTIFACT_DIR="$DIR"` and read `review.org` from there.
-- **`NONE`**, **`AMBIGUOUS: …`**, or **`NOT FOUND: <slug>`** — fall back to the legacy flat-file path using the branch-derived label.
+- **`NONE`**, **`AMBIGUOUS: …`**, or **`NOT FOUND: <slug>`** — abort with an error.
 
-<!-- artifact-label:begin — shared verbatim across @review and @ship (legacy fallback path); make lint-agents checks identity -->
-```bash
-TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
-LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
-```
-<!-- artifact-label:end -->
 
-### 2a. With artifact folder (preferred path)
-
-When `ARTIFACT_DIR` is set, read `review.org` and extract the keywords:
+Read `review.org` and extract the keywords:
 
 ```bash
 REVIEW_FILE="$ARTIFACT_DIR/review.org"
@@ -277,38 +269,6 @@ Act on the result:
 
 Independently, if `STATUS` is `has-findings`, show the Critical and Warning items and ask the user to confirm before proceeding.
 
-### 2b. Without artifact folder (fallback)
-
-When `ARTIFACT_DIR` is not set, read the legacy flat-file artifact:
-
-```bash
-REVIEW_FILE=".agents/artifacts/${LABEL}-review-impl.md"
-cat "$REVIEW_FILE" 2>/dev/null
-```
-
-Extract `reviewed_head` and `status` from the frontmatter with `yq`:
-
-```bash
-HEAD_SHA=$(git rev-parse HEAD)
-REVIEWED_HEAD=$(yq --front-matter=extract '.reviewed_head // ""' "$REVIEW_FILE" 2>/dev/null)
-STATUS=$(yq --front-matter=extract '.status // ""' "$REVIEW_FILE" 2>/dev/null)
-
-if [ ! -f "$REVIEW_FILE" ]; then
-  echo "NO_REVIEW"
-elif [ -z "$REVIEWED_HEAD" ]; then
-  echo "NO_HEAD"
-elif [ "$HEAD_SHA" = "$REVIEWED_HEAD" ]; then
-  echo "FRESH"
-elif ! git merge-base --is-ancestor "$REVIEWED_HEAD" HEAD 2>/dev/null; then
-  echo "STALE"
-elif [ "$(git log --format='%s' "$REVIEWED_HEAD"..HEAD | grep -vc '^fixup!')" -eq 0 ]; then
-  echo "FIXUPS_ONLY"
-else
-  echo "STALE"
-fi
-```
-
-Act on the result as in 2a.
 
 ---
 
@@ -440,11 +400,7 @@ For certified projects (e.g. HITRUST E1), create one MR per slice in dependency 
 ```bash
 if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
   # Resolve board.org path
-  if [ -n "${ARTIFACT_DIR:-}" ]; then
-    BOARD_FILE="$ARTIFACT_DIR/board.org"
-  else
-    BOARD_FILE=".agents/artifacts/${LABEL}-kanban-board.md"
-  fi
+  BOARD_FILE="$ARTIFACT_DIR/board.org"
   
   if [ ! -f "$BOARD_FILE" ]; then
     echo "Error: board not found at $BOARD_FILE"
@@ -452,83 +408,83 @@ if [ "$PROJECT_TYPE" = "CERTIFIED_PROJECT" ]; then
     exit 1
   fi
   
-  # Detect board format (Org vs Markdown/YAML)
-  if [[ "$BOARD_FILE" == *.org ]]; then
-    # Parse board.org with awk — extract slice count
-    SLICE_COUNT=$(awk '/^\* [A-Z]+ Slice [0-9]+:/ { count++ } END { print count+0 }' "$BOARD_FILE")
+  SLUG=$(basename "$ARTIFACT_DIR")
+  LABEL=$(echo "$SLUG" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+  LABEL=${LABEL:-$SLUG}
+
+  # Push the epic branch so it exists on the remote for the first slice's MR base.
+  git push -u origin "$EPIC_BRANCH" 2>/dev/null || true
+
+  # Parse board.org with awk — extract slice count
+  SLICE_COUNT=$(awk '/^\* [A-Z]+ Slice [0-9]+:/ { count++ } END { print count+0 }' "$BOARD_FILE")
+  
+  case "$SLICE_COUNT" in
+    ''|*[!0-9]*) echo "Error: could not parse slice count from board"; exit 1 ;;
+    0) echo "Error: board has no slices"; exit 1 ;;
+  esac
+  echo "Creating $SLICE_COUNT per-slice MRs"
+  
+  # Collect per-slice failures for summary at the end
+  FAILED_SLICES=""
+  
+  # Iterate slices in document order. Each record is one line:
+  #   SLICE_ID<TAB>SLICE_TITLE<TAB>SLICE_MODE<TAB>BLOCKED_BY
+  # The id comes from the :SLICE: property (heading number as fallback), so
+  # the loop never assumes slice numbers match document positions — a renumber
+  # or a gap in the board headings cannot silently mis-target MRs.
+  while IFS=$'\t' read -r SLICE_ID SLICE_TITLE SLICE_MODE BLOCKED_BY; do
+    [ -n "$SLICE_ID" ] || {
+      echo "Error: slice record without :SLICE:"
+      exit 1
+    }
     
-    case "$SLICE_COUNT" in
-      ''|*[!0-9]*) echo "Error: could not parse slice count from board"; exit 1 ;;
-      0) echo "Error: board has no slices"; exit 1 ;;
+    # Derive MR base from blocked_by — respects dependency order
+    case "$BLOCKED_BY" in
+      "")   MR_BASE="$EPIC_BRANCH" ;;
+      *\ *) echo "Error: multi-dep slice $SLICE_ID not supported in certified mode"
+            echo "Slice $SLICE_ID has dependencies: $BLOCKED_BY"
+            echo "Certified projects require linear dependency chains"
+            exit 1 ;;
+      *)    MR_BASE="${EPIC_BRANCH}-s${BLOCKED_BY}"
+            if ! git show-ref --verify --quiet "refs/heads/$MR_BASE"; then
+              echo "Error: parent branch $MR_BASE doesn't exist for slice $SLICE_ID"
+              exit 1
+            fi ;;
     esac
-    echo "Creating $SLICE_COUNT per-slice MRs"
     
-    # Collect per-slice failures for summary at the end
-    FAILED_SLICES=""
+    # Determine slice branch name
+    SLICE_BRANCH="${EPIC_BRANCH}-s${SLICE_ID}"
+    if ! git show-ref --verify --quiet "refs/heads/$SLICE_BRANCH"; then
+      echo "Error: slice branch $SLICE_BRANCH doesn't exist"
+      exit 1
+    fi
     
-    # Iterate slices in document order. Each record is one line:
-    #   SLICE_ID<TAB>SLICE_TITLE<TAB>SLICE_MODE<TAB>BLOCKED_BY
-    # The id comes from the :SLICE: property (heading number as fallback), so
-    # the loop never assumes slice numbers match document positions — a renumber
-    # or a gap in the board headings cannot silently mis-target MRs.
-    while IFS=$'\t' read -r SLICE_ID SLICE_TITLE SLICE_MODE BLOCKED_BY; do
-      [ -n "$SLICE_ID" ] || {
-        echo "Error: slice record without :SLICE:"
-        exit 1
-      }
-      
-      # Derive MR base from blocked_by — respects dependency order
-      case "$BLOCKED_BY" in
-        "")   MR_BASE="$EPIC_BRANCH" ;;
-        *\ *) echo "Error: multi-dep slice $SLICE_ID not supported in certified mode"
-              echo "Slice $SLICE_ID has dependencies: $BLOCKED_BY"
-              echo "Certified projects require linear dependency chains"
-              exit 1 ;;
-        *)    MR_BASE="${EPIC_BRANCH}-s${BLOCKED_BY}"
-              if ! git show-ref --verify --quiet "refs/heads/$MR_BASE"; then
-                echo "Error: parent branch $MR_BASE doesn't exist for slice $SLICE_ID"
-                exit 1
-              fi ;;
-      esac
-      
-      # Determine slice branch name
-      SLICE_BRANCH="${EPIC_BRANCH}-s${SLICE_ID}"
-      if ! git show-ref --verify --quiet "refs/heads/$SLICE_BRANCH"; then
-        echo "Error: slice branch $SLICE_BRANCH doesn't exist"
-        exit 1
-      fi
-      
-      echo "Creating MR for Slice $SLICE_ID: $SLICE_TITLE"
-      echo "  Branch: $SLICE_BRANCH → $MR_BASE"
-      
-      # Push the slice branch
-      if ! git push -u origin "$SLICE_BRANCH" 2>/dev/null; then
-        echo "  Warning: failed to push $SLICE_BRANCH — MR may still be creatable if already pushed"
-      fi
-      
-      # Create MR with slice-specific title
-      MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
-      
-      # GitHub
-      if [ "$FORGE" = "github" ]; then
-        if MR_OUTPUT=$(gh pr create \
-          --title "$MR_TITLE" \
-          --body "$(cat <<EOF
-## Slice ${SLICE_ID}: ${SLICE_TITLE}
+    echo "Creating MR for Slice $SLICE_ID: $SLICE_TITLE"
+    echo "  Branch: $SLICE_BRANCH → $MR_BASE"
+    
+    # Push the slice branch
+    if ! git push -u origin "$SLICE_BRANCH" 2>/dev/null; then
+      echo "  Warning: failed to push $SLICE_BRANCH — MR may still be creatable if already pushed"
+    fi
+    
+    # Create MR with slice-specific title
+    MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
+    MR_BODY="## Slice ${SLICE_ID}: ${SLICE_TITLE}
 
 Mode: ${SLICE_MODE}
 
 Part of ${LABEL} implementation.
 
-🤖 AI-assisted
-EOF
-)" \
-          --head "$SLICE_BRANCH" \
-          --base "$MR_BASE" \
+🤖 AI-assisted"
+
+    case "$FORGE" in
+      github)
+        if MR_OUTPUT=$(gh pr create \
+          --title "$MR_TITLE" --body "$MR_BODY" \
+          --head "$SLICE_BRANCH" --base "$MR_BASE" \
           --assignee @me 2>&1); then
           echo "  MR created: $MR_OUTPUT"
         elif echo "$MR_OUTPUT" | grep -qi "already exists"; then
-          # MR already exists — view it instead of failing
           echo "  MR already exists for $SLICE_BRANCH — viewing:"
           gh pr view "$SLICE_BRANCH" --json url -q .url 2>/dev/null || \
             echo "  (could not retrieve existing MR URL)"
@@ -536,27 +492,14 @@ EOF
           echo "  Warning: failed to create MR for slice $SLICE_ID"
           echo "  Error: $MR_OUTPUT"
           FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
-        fi
-      # GitLab
-      elif [ "$FORGE" = "gitlab" ]; then
+        fi ;;
+      gitlab)
         if MR_OUTPUT=$(glab mr create \
-          --title "$MR_TITLE" \
-          --description "$(cat <<EOF
-## Slice ${SLICE_ID}: ${SLICE_TITLE}
-
-Mode: ${SLICE_MODE}
-
-Part of ${LABEL} implementation.
-
-🤖 AI-assisted
-EOF
-)" \
-          --source-branch "$SLICE_BRANCH" \
-          --target-branch "$MR_BASE" \
+          --title "$MR_TITLE" --description "$MR_BODY" \
+          --source-branch "$SLICE_BRANCH" --target-branch "$MR_BASE" \
           --assignee @me 2>&1); then
           echo "  MR created: $MR_OUTPUT"
         elif echo "$MR_OUTPUT" | grep -qi "already exists\|merge request already exists"; then
-          # MR already exists — view it instead of failing
           echo "  MR already exists for $SLICE_BRANCH — viewing:"
           glab mr view "$SLICE_BRANCH" 2>/dev/null || \
             echo "  (could not retrieve existing MR URL)"
@@ -564,13 +507,13 @@ EOF
           echo "  Warning: failed to create MR for slice $SLICE_ID"
           echo "  Error: $MR_OUTPUT"
           FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
-        fi
-      else
+        fi ;;
+      *)
         echo "  Warning: unknown forge — cannot create MR for slice $SLICE_ID automatically"
         echo "  Create manually: $SLICE_BRANCH → $MR_BASE (title: $MR_TITLE)"
-        FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
-      fi
-    done < <(awk '
+        FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}" ;;
+    esac
+  done < <(awk '
       function flush() {
         if (cur) printf "%s\t%s\t%s\t%s\n", sid[cur], ttl[cur], (mode[cur] == "" ? "afk" : mode[cur]), bb[cur]
       }
@@ -588,163 +531,14 @@ EOF
       cur && /^:BLOCKED_BY:/ { $1 = ""; bb[cur] = $0; sub(/^[ \t]+/, "", bb[cur]); next }
       END { flush() }
     ' "$BOARD_FILE")
-    
-    # Summary
-    if [ -n "$FAILED_SLICES" ]; then
-      echo ""
-      echo "Warning: some per-slice MRs were not created: $FAILED_SLICES"
-      echo "Create them manually or re-run @ship after fixing the issues above."
-    else
-      echo "All per-slice MRs created"
-    fi
   
+  # Summary
+  if [ -n "$FAILED_SLICES" ]; then
+    echo ""
+    echo "Warning: some per-slice MRs were not created: $FAILED_SLICES"
+    echo "Create them manually or re-run @ship after fixing the issues above."
   else
-    # Legacy Markdown/YAML board — use yq
-    IMPL_FILE=".agents/artifacts/${LABEL}-impl-progress.md"
-    
-    if [ ! -f "$IMPL_FILE" ]; then
-      echo "Error: impl-progress artifact not found at $IMPL_FILE"
-      echo "Cannot determine slice boundaries for per-slice MRs"
-      exit 1
-    fi
-    
-    # Guard yq availability
-    if ! command -v yq >/dev/null 2>&1; then
-      echo "Error: yq not found — required for certified project MR creation"
-      exit 1
-    fi
-    
-    # Derive epic branch deterministically (handles resume after /clear)
-    EPIC_BRANCH=$(echo "$BRANCH" | sed -E 's/-s[0-9]+$//')
-    
-    # Push the epic branch so it exists on the remote for the first slice's MR base.
-    git push -u origin "$EPIC_BRANCH" || {
-      echo "Error: failed to push epic branch $EPIC_BRANCH"
-      exit 1
-    }
-    
-    # Get slice count from frontmatter
-    SLICE_COUNT=$(yq --front-matter=process eval '.slices | length' "$BOARD_FILE" | head -1)
-    case "$SLICE_COUNT" in
-      ''|*[!0-9]*) echo "Error: could not parse slice count from board"; exit 1 ;;
-      0) echo "Error: board has no slices"; exit 1 ;;
-    esac
-    echo "Creating $SLICE_COUNT per-slice MRs (legacy format)"
-    
-    # Collect per-slice failures for summary at the end
-    FAILED_SLICES=""
-    
-    # Iterate through slices in order (1, 2, 3, ...)
-    for i in $(seq 1 $SLICE_COUNT); do
-      # Extract slice metadata from board (dependency info)
-      SLICE_ID=$(yq --front-matter=process eval ".slices[$((i-1))].id" "$BOARD_FILE" | head -1)
-      SLICE_TITLE=$(yq --front-matter=process eval ".slices[$((i-1))].title" "$BOARD_FILE" | head -1)
-      SLICE_DESC=$(yq --front-matter=process eval ".slices[$((i-1))].description // \"\"" "$BOARD_FILE" | head -1)
-      
-      # Derive MR base from blocked_by — respects dependency order
-      BLOCKED_BY=$(yq --front-matter=process eval \
-        ".slices[$((i-1))].blocked_by | join(\",\")" "$BOARD_FILE" | head -1)
-      
-      case "$BLOCKED_BY" in
-        "")   MR_BASE="$EPIC_BRANCH" ;;
-        *,*)  echo "Error: multi-dep slice $SLICE_ID not supported in certified mode"
-              echo "Slice $SLICE_ID has dependencies: $BLOCKED_BY"
-              echo "Certified projects require linear dependency chains"
-              exit 1 ;;
-        *)    MR_BASE="${EPIC_BRANCH}-s${BLOCKED_BY}"
-              if ! git show-ref --verify --quiet "refs/heads/$MR_BASE"; then
-                echo "Error: parent branch $MR_BASE doesn't exist for slice $SLICE_ID"
-                exit 1
-              fi ;;
-      esac
-      
-      # Determine slice branch name
-      SLICE_BRANCH="${EPIC_BRANCH}-s${SLICE_ID}"
-      if ! git show-ref --verify --quiet "refs/heads/$SLICE_BRANCH"; then
-        echo "Error: slice branch $SLICE_BRANCH doesn't exist"
-        exit 1
-      fi
-      
-      echo "Creating MR for Slice $SLICE_ID: $SLICE_TITLE"
-      echo "  Branch: $SLICE_BRANCH → $MR_BASE"
-      
-      # Push the slice branch
-      if ! git push -u origin "$SLICE_BRANCH" 2>/dev/null; then
-        echo "  Warning: failed to push $SLICE_BRANCH — MR may still be creatable if already pushed"
-      fi
-      
-      # Create MR with slice-specific title
-      MR_TITLE="${LABEL}-s${SLICE_ID}: ${SLICE_TITLE}"
-      
-      # GitHub
-      if [ "$FORGE" = "github" ]; then
-        if MR_OUTPUT=$(gh pr create \
-          --title "$MR_TITLE" \
-          --body "$(cat <<EOF
-## Slice ${SLICE_ID}: ${SLICE_TITLE}
-
-${SLICE_DESC}
-
-Part of ${LABEL} implementation.
-
-🤖 AI-assisted
-EOF
-)" \
-          --head "$SLICE_BRANCH" \
-          --base "$MR_BASE" \
-          --assignee @me 2>&1); then
-          echo "  MR created: $MR_OUTPUT"
-        elif echo "$MR_OUTPUT" | grep -qi "already exists"; then
-          echo "  MR already exists for $SLICE_BRANCH — viewing:"
-          gh pr view "$SLICE_BRANCH" --json url -q .url 2>/dev/null || \
-            echo "  (could not retrieve existing MR URL)"
-        else
-          echo "  Warning: failed to create MR for slice $SLICE_ID"
-          echo "  Error: $MR_OUTPUT"
-          FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
-        fi
-      # GitLab
-      elif [ "$FORGE" = "gitlab" ]; then
-        if MR_OUTPUT=$(glab mr create \
-          --title "$MR_TITLE" \
-          --description "$(cat <<EOF
-## Slice ${SLICE_ID}: ${SLICE_TITLE}
-
-${SLICE_DESC}
-
-Part of ${LABEL} implementation.
-
-🤖 AI-assisted
-EOF
-)" \
-          --source-branch "$SLICE_BRANCH" \
-          --target-branch "$MR_BASE" \
-          --assignee @me 2>&1); then
-          echo "  MR created: $MR_OUTPUT"
-        elif echo "$MR_OUTPUT" | grep -qi "already exists\|merge request already exists"; then
-          echo "  MR already exists for $SLICE_BRANCH — viewing:"
-          glab mr view "$SLICE_BRANCH" 2>/dev/null || \
-            echo "  (could not retrieve existing MR URL)"
-        else
-          echo "  Warning: failed to create MR for slice $SLICE_ID"
-          echo "  Error: $MR_OUTPUT"
-          FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
-        fi
-      else
-        echo "  Warning: unknown forge — cannot create MR for slice $SLICE_ID automatically"
-        echo "  Create manually: $SLICE_BRANCH → $MR_BASE (title: $MR_TITLE)"
-        FAILED_SLICES="${FAILED_SLICES}${FAILED_SLICES:+, }s${SLICE_ID}"
-      fi
-    done
-    
-    # Summary
-    if [ -n "$FAILED_SLICES" ]; then
-      echo ""
-      echo "Warning: some per-slice MRs were not created: $FAILED_SLICES"
-      echo "Create them manually or re-run @ship after fixing the issues above."
-    else
-      echo "All per-slice MRs created"
-    fi
+    echo "All per-slice MRs created"
   fi
 fi
 ```
@@ -831,7 +625,7 @@ against `$TARGET_BRANCH`.
 ## Step 6: Archive the Work (last)
 
 Only after the push and MR succeed, archive the work folder so an aborted ship
-never leaves it falsely archived. Reuse the `${ARTIFACT_DIR}` or `${LABEL}` resolved in Step 2.
+never leaves it falsely archived.
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
 ```bash
@@ -841,9 +635,7 @@ mkdir -p .agents
 ```
 <!-- agents-gitignore:end -->
 
-### 6a. With artifact folder (preferred path)
-
-When `ARTIFACT_DIR` is set, move the entire work folder to `.agents/archive/`:
+Move the entire work folder to `.agents/archive/`:
 
 ```bash
 if [ -n "${ARTIFACT_DIR:-}" ]; then
@@ -870,26 +662,6 @@ fi
 
 The folder is moved, not copied, so the artifacts are no longer in `.agents/artifacts/` and `artifact-dir` will not find them unless explicitly reopened.
 
-### 6b. Without artifact folder (fallback)
-
-When `ARTIFACT_DIR` is not set, close the legacy flat-file artifacts:
-
-```bash
-if [ -z "${ARTIFACT_DIR:-}" ]; then
-  CLOSED=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  
-  for f in ".agents/artifacts/${LABEL}-plan.md" ".agents/artifacts/${LABEL}-kanban-board.md"; do
-    if [ -f "$f" ]; then
-      sed -i "s/^status: .*/status: closed/" "$f"
-      # Add closed timestamp after the status line if not present
-      grep -q '^closed:' "$f" || sed -i "/^status: /a closed: $CLOSED" "$f"
-      echo "Closed: $f"
-    fi
-  done
-  
-  [ -f ".agents/artifacts/${LABEL}-impl-progress.md" ] && sed -i "s/^status: .*/status: closed/" ".agents/artifacts/${LABEL}-impl-progress.md"
-fi
-```
 
 ---
 

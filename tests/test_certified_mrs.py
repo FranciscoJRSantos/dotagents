@@ -7,7 +7,6 @@ for certified projects, while maintaining single-MR behavior for non-certified.
 import subprocess
 import tempfile
 from pathlib import Path
-import yaml
 import re
 
 
@@ -45,35 +44,31 @@ def _create_test_repo() -> Path:
     return tmpdir
 
 
-def _create_kanban_board(tmpdir: Path, slices: list[dict]):
-    """Create a kanban board artifact."""
-    artifacts_dir = tmpdir / ".agents" / "artifacts"
+def _create_board_org(tmpdir: Path, slices: list[dict]):
+    """Create a board.org artifact in Org format."""
+    # Use the slug-based artifact directory structure
+    artifacts_dir = tmpdir / ".agents" / "artifacts" / "test-slug"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    frontmatter = {
-        "artifact": "kanban-board",
-        "ticket": "TEST-1",
-        "slices": slices,
-    }
+    lines = [
+        "#+TITLE: Board: Test",
+        "#+CREATED: 2026-01-01T00:00:00Z",
+        "#+TODO: TODO DOING | DONE SKIPPED",
+        "",
+    ]
 
-    board_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n"
-    (artifacts_dir / "TEST-1-kanban-board.md").write_text(board_content)
+    for i, slice_data in enumerate(slices, 1):
+        status = "DONE" if slice_data.get("status") == "complete" else "TODO"
+        lines.append(f"* {status} Slice {i}: {slice_data['title']}")
+        lines.append(":PROPERTIES:")
+        lines.append(f":SLICE: {slice_data['id']}")
+        lines.append(":MODE: afk")
+        blocked_by = slice_data.get("blocked_by", [])
+        lines.append(f":BLOCKED_BY: {' '.join(map(str, blocked_by))}")
+        lines.append(":END:")
+        lines.append("")
 
-
-def _create_impl_progress(tmpdir: Path, slices: list[dict]):
-    """Create an impl-progress artifact with slice commits."""
-    artifacts_dir = tmpdir / ".agents" / "artifacts"
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-    frontmatter = {
-        "artifact": "impl-progress",
-        "ticket": "TEST-1",
-        "status": "complete",
-        "slices": slices,
-    }
-
-    content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n"
-    (artifacts_dir / "TEST-1-impl-progress.md").write_text(content)
+    (artifacts_dir / "board.org").write_text("\n".join(lines))
 
 
 def _create_project_yaml(tmpdir: Path, certified: bool):
@@ -127,12 +122,11 @@ def test_certified_project_creates_per_slice_mrs():
     rc, commit2 = _run_git(["rev-parse", "--short", "HEAD"], tmpdir)
 
     # Create artifacts
-    _create_kanban_board(tmpdir, slices)
-    _create_impl_progress(
+    _create_board_org(
         tmpdir,
         [
-            {"id": 1, "title": "First", "status": "complete", "commit": commit1},
-            {"id": 2, "title": "Second", "status": "complete", "commit": commit2},
+            {"id": 1, "title": "First", "blocked_by": [], "status": "complete"},
+            {"id": 2, "title": "Second", "blocked_by": [1], "status": "complete"},
         ],
     )
     _create_project_yaml(tmpdir, certified=True)
