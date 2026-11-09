@@ -83,8 +83,7 @@ If nothing found: `No deferred: debt. Clean ledger.`
 
 ## Step 5: Persist (optional)
 
-If the user asks to save it, write to `.agents/artifacts/debt-ledger.md`
-with YAML frontmatter:
+If the user asks to save it, write to `.agents/debt-ledger.org` with Org keywords:
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
 ```bash
@@ -94,25 +93,36 @@ mkdir -p .agents
 ```
 <!-- agents-gitignore:end -->
 
+Write the ledger as Markdown first, then convert:
+
 ```bash
-mkdir -p .agents/artifacts
+LEDGER_MD=$(mktemp --suffix=.md)
+cat > "$LEDGER_MD" <<'EOF'
+# Deferred Debt Ledger
+
+| File | Line | What | Ceiling | Upgrade | Owner | Status |
+|------|------|------|---------|---------|-------|--------|
+| app/cache.py | L42 | global lock | throughput matters | per-account locks | francisco | ok |
+| lib/parser.py | L88 | naive heuristic | (no trigger) | — | — | no-trigger |
+
+---
+3 markers, 1 with no trigger.
+EOF
+
+~/.agents/bin/md2org "$LEDGER_MD" ".agents/debt-ledger.org" \
+  STATUS="clean" \
+  MARKERS=3 \
+  NO_TRIGGER=1 && rm -f "$LEDGER_MD"
 ```
 
-```yaml
----
-artifact: debt-ledger
-skill: debt-ledger
-created: <ISO 8601 timestamp>
-status: <clean|has-items>
-markers: <N>
-no_trigger: <M>
----
-```
+`md2org` must exit 0 before you continue. On a non-zero exit it prints `file:line`
+per Markdown leftover and keeps both files: fix the lines in `$LEDGER_MD` and run it
+again.
 
 ---
 
 ## Boundaries
 
 Reads and reports only, changes nothing. One-shot. Complements `@learn`
-(session-level lessons) and `.agents/STATE.md` "Deferred Items" (session
+(session-level lessons) and `.agents/STATE.org` "Deferred Items" (session
 deferrals) with code-level deferral tracking.

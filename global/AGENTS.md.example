@@ -39,6 +39,12 @@
 - Always prefix commit subjects with a conventional-commit type tag (`fix:`, `feat:`, `chore:`, `docs:`) BECAUSE the history is scanned by type, not read end to end.
 - Always sign off commit bodies with `Co-Authored-By: AI Assistant` BECAUSE that is the established attribution trailer for AI-assisted work.
 
+## Agent Artifacts
+- Always keep work-scoped artifacts in `.agents/artifacts/<slug>/` and let `@ship` move the folder to `.agents/archive/<slug>/` BECAUSE the folder *is* the work, so extras archive with it.
+- Always put standalone documents (business cases, reports, notes) in `.agents/notes/` BECAUSE they are not tied to a piece of work and must not archiving-travel with one.
+- Always write artifacts as Org through the deployed `md2org`, except drafts destined for Confluence, Jira or an MR description, which stay `.md` BECAUSE those are posted as Markdown.
+- Always keep repo-wide state in `.agents/STATE.org`, and handoffs in the work folder's `handoffs/` directory (or `.agents/handoffs/` when there is no active work) BECAUSE location is the state.
+
 ## Self-correction
 - If a codemap, artifact, or convention you rely on is stale, update it before finishing the task.
 - When the user corrects you, append the rule to `.agents/conventions.md` under `## Learned (unreviewed)` (create it if absent) as "Always/Never [action] BECAUSE [reason] — <date>, <context>". Never replace or merge existing rules. Run `/learn review` to keep, edit, promote or drop the unreviewed ones; promotion writes your global rules source and deploys it.

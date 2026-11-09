@@ -719,7 +719,7 @@ While executing a slice, you may discover work not explicitly in the plan. Apply
 
 Fix inline → add/update tests if applicable → verify fix works → continue task. Document deviations in the slice summary using format: `[Rule N - Type] description`.
 
-**Scope boundary:** Only auto-fix issues DIRECTLY caused by the current slice's changes. Pre-existing linting errors or failures in unrelated files are out of scope — log them to .agents/STATE.md as deferred items.
+**Scope boundary:** Only auto-fix issues DIRECTLY caused by the current slice's changes. Pre-existing linting errors or failures in unrelated files are out of scope — log them to .agents/STATE.org as deferred items.
 
 **Fix attempt limit:** After 3 auto-fix attempts on a single issue, stop fixing, document remaining issues in the summary as "Deferred Issues", and continue to the next slice.
 
