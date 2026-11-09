@@ -13,7 +13,7 @@ AGENTS_DIR_ITEMS   := $(AGENTS_SRC)/partials $(BIN_SRC)
 ## Files that resolve the active work folder: each must call ~/.agents/bin/artifact-dir
 ## (checked by lint-agents). The rest of the chain joins as it moves to Org folders;
 ## until then it stays under the artifact-label identity check.
-ARTIFACT_DIR_CALLERS := $(GLOBAL_SKILLS)/arch/SKILL.md $(GLOBAL_SKILLS)/build/SKILL.md
+ARTIFACT_DIR_CALLERS := $(GLOBAL_SKILLS)/arch/SKILL.md $(GLOBAL_SKILLS)/build/SKILL.md $(GLOBAL_SKILLS)/review/SKILL.md
 
 OPENCODE_SKILLS_DIR ?= $(HOME)/.config/opencode/skills
 OPENCODE_AGENTS_DIR  ?= $(HOME)/.config/opencode/agents
@@ -220,7 +220,7 @@ lint-agents:
 	tmp=$$(mktemp -d); \
 	ref=""; \
 	label_ok=true; \
-	for f in "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md" "$(AGENTS_SRC)/reviewer.md"; do \
+	for f in "$(GLOBAL_SKILLS)/review/SKILL.md" "$(GLOBAL_SKILLS)/ship/SKILL.md"; do \
 		out="$$tmp/$$(printf '%s' "$$f" | tr '/' '_')"; \
 		sed -n '/artifact-label:begin/,/artifact-label:end/p' "$$f" > "$$out"; \
 		if [ ! -s "$$out" ]; then \

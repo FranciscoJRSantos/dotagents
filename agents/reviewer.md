@@ -93,20 +93,30 @@ git ls-files --others --exclude-standard
 
 ### Load plan artifact (if available)
 
-<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
-```bash
-TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
-LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
-```
-<!-- artifact-label:end -->
+The `@review` skill passes `ARTIFACT_DIR` when it resolved a work folder. When set, read the plan and board from there:
 
 ```bash
-cat .agents/artifacts/${LABEL}-plan.md 2>/dev/null | head -40
-cat .agents/artifacts/${LABEL}-kanban-board.md 2>/dev/null | head -40
+if [ -n "${ARTIFACT_DIR:-}" ]; then
+  [ -f "$ARTIFACT_DIR/plan.org" ] && cat "$ARTIFACT_DIR/plan.org" | head -40
+  [ -f "$ARTIFACT_DIR/board.org" ] && cat "$ARTIFACT_DIR/board.org" | head -40
+fi
+```
+
+When `ARTIFACT_DIR` is not set, fall back to `artifact-dir` lookup — but do not ask the user when it resolves to nothing; skip plan context instead:
+
+```bash
+if [ -z "${ARTIFACT_DIR:-}" ]; then
+  OUT=$(~/.agents/bin/artifact-dir "" 2>/dev/null); rc=$?
+  if [ $rc -eq 0 ]; then
+    DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
+    [ -f "$DIR/plan.org" ] && cat "$DIR/plan.org" | head -40
+    [ -f "$DIR/board.org" ] && cat "$DIR/board.org" | head -40
+  fi
+fi
 ```
 
 Use the plan's acceptance criteria to check whether the implementation covers what
-was committed to; use the kanban's slice descriptions to see what each vertical
+was committed to; use the board's slice descriptions to see what each vertical
 slice intended to deliver.
 
 ## Both Modes

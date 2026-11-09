@@ -7,7 +7,7 @@ description: >
   uncommitted or unmerged work. Trigger even if the user just says "can you check
   this branch" or "look at my changes" — they almost certainly want a risk-routed
   code review.
-  Entry point: @review
+  Entry point: @review [slug | scope]
 ---
 
 # Review Skill
@@ -49,7 +49,25 @@ This keeps review independent (different family = independent signal) and off th
 
 ---
 
-## Step 1: Select the Scope
+## Step 1: Resolve the Work Folder
+
+The invocation argument (`@review <arg>`) is a **slug** when `.agents/{artifacts,archive}/<arg>` exists, otherwise it is a **scope** (commit, branch, or MR). Resolve the folder first:
+
+```bash
+SLUG=<arg if it is a folder, else empty>
+OUT=$(~/.agents/bin/artifact-dir "$SLUG"); rc=$?
+echo "$OUT"
+DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
+```
+
+- **`ARTIFACT_DIR=…`** (`rc` 0) — set `ARTIFACT_DIR="$DIR"` and pass it to the reviewer in Step 3. The reviewer reads `plan.org` and `board.org` from this folder for context.
+- **`NONE`**, **`AMBIGUOUS: …`**, or **`NOT FOUND: <slug>`** — the argument was a scope, not a slug. Continue without `ARTIFACT_DIR`; the reviewer falls back to its own `artifact-dir` lookup (and skips plan context when unresolved).
+
+A `LEGACY LAYOUT` warning on stderr means flat files from the old layout are present; they are ignored, so carry on.
+
+---
+
+## Step 1a: Select the Scope
 
 Pick one:
 
@@ -79,7 +97,13 @@ shared `~/.agents/partials/review-rules.md`. The only template for this file is
 
 Spawn the `reviewer` subagent with the scope named explicitly in the invocation —
 `@reviewer branch` (default) or `@reviewer slice` — and paste any project review
-rules from Step 2 into the prompt.
+rules from Step 2 into the prompt. Pass `ARTIFACT_DIR` when Step 1 resolved one:
+
+```
+ARTIFACT_DIR=$DIR
+```
+
+The reviewer reads `$ARTIFACT_DIR/plan.org` and `$ARTIFACT_DIR/board.org` for context when available, falls back to its own `artifact-dir` lookup, and skips plan context (never asks) when unresolved.
 
 The reviewer acquires the diff itself and returns the review report, ending with
 the `GATE:` line. Do not re-run the review in the main context.
@@ -133,10 +157,7 @@ Write the review report to the artifact regardless (it's the source of truth).
 
 ## Step 6: Write the Artifact
 
-Determine the label and create the artifacts directory. The label comes from the
-branch name — the ticket key when the branch carries one, otherwise the branch
-name with `/` replaced by `-`. Without this, `@review` on `fix/typo` writes to a
-nonexistent `.agents/artifacts/fix/` directory.
+Determine the label for the fallback path. When Step 1 resolved a folder (`ARTIFACT_DIR` set), write `review.org` there. Otherwise, fall back to the legacy flat-file path using the branch-derived label:
 
 <!-- agents-gitignore:begin — shared verbatim across every skill that writes into .agents/; make lint-agents checks identity -->
 ```bash
@@ -145,17 +166,6 @@ mkdir -p .agents
 [ -f .agents/.gitignore ] || printf '*\n!.gitignore\n!conventions.md\n!review.md\n' > .agents/.gitignore
 ```
 <!-- agents-gitignore:end -->
-
-```bash
-mkdir -p .agents/artifacts
-```
-
-<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
-```bash
-TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
-LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
-```
-<!-- artifact-label:end -->
 
 Record the commit that was reviewed, so `@ship` can tell whether the review still
 matches HEAD:
@@ -166,8 +176,44 @@ REVIEWED_HEAD=$(git rev-parse HEAD)
 
 Derive the status from the reviewer's findings:
 
-- `status: clean` — no Critical or Warning findings
-- `status: has-findings` — any Critical or Warning items present
+- `STATUS=clean` — no Critical or Warning findings
+- `STATUS=has-findings` — any Critical or Warning items present
+
+### 6a. With artifact folder (preferred path)
+
+When `ARTIFACT_DIR` is set, write the reviewer's Markdown report to a temp file and convert it with `md2org`:
+
+```bash
+REPORT_MD=$(mktemp --suffix=.md)
+cat > "$REPORT_MD" <<'EOF'
+[paste the reviewer's full Markdown report here]
+EOF
+
+~/.agents/bin/md2org "$REPORT_MD" "$ARTIFACT_DIR/review.org" \
+  REVIEWED_HEAD="$REVIEWED_HEAD" \
+  STATUS="$STATUS" && rm -f "$REPORT_MD"
+```
+
+`md2org` must exit 0 before you continue. On a non-zero exit it prints `file:line`
+per Markdown leftover and keeps both files: fix the lines in `$REPORT_MD` and run it
+again.
+
+The resulting `review.org` has `#+REVIEWED_HEAD:` and `#+STATUS:` keywords at the top, followed by the report body. `@ship` reads these keywords, checks that `REVIEWED_HEAD` still matches HEAD (or that only `fixup!` commits follow), and blocks on `STATUS: has-findings`.
+
+### 6b. Without artifact folder (fallback)
+
+When `ARTIFACT_DIR` is not set (the argument was a scope, not a slug), write the legacy flat-file artifact:
+
+<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
+```bash
+TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
+LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
+```
+<!-- artifact-label:end -->
+
+```bash
+mkdir -p .agents/artifacts
+```
 
 Write `.agents/artifacts/<LABEL>-review-impl.md`:
 
@@ -183,9 +229,6 @@ status: clean        # or: has-findings
 ```
 
 Followed by the reviewer's full report.
-
-`@ship` reads this artifact, checks that `reviewed_head` still matches HEAD (or
-that only `fixup!` commits follow), and blocks on `status: has-findings`.
 
 Run `/clear` before `@ship` to start the ship step in a fresh context window.
 
