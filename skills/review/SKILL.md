@@ -204,7 +204,7 @@ The resulting `review.org` has `#+REVIEWED_HEAD:` and `#+STATUS:` keywords at th
 
 When `ARTIFACT_DIR` is not set (the argument was a scope, not a slug), write the legacy flat-file artifact:
 
-<!-- artifact-label:begin — shared verbatim across @arch, @build, @review, @ship and @reviewer; make lint-agents checks identity -->
+<!-- artifact-label:begin — shared verbatim across @review and @ship (legacy fallback path); make lint-agents checks identity -->
 ```bash
 TICKET=$(git branch --show-current | grep -oE '[A-Z]+-[0-9]+' | head -1)
 LABEL=${TICKET:-$(git branch --show-current | tr '/' '-')}
