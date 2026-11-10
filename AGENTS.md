@@ -92,4 +92,21 @@ disposable and self-ignoring; only `.agents/conventions.md` is tracked.
 The `reviewer` loads `~/.agents/partials/review-rules.md` and overlays
 `.agents/review.md` when present. Template: `templates/review.md.example`.
 
+## Sandbox Workflow
+
+**Workflow split:** 90% coding (autonomous, sandboxed) vs 10% system admin (interactive, unsandboxed).
+
+- `sandbox` — launches OpenCode inside nono sandbox: `nono run --profile opencode-sandbox -- opencode --standalone`
+- `opencode` — plain OpenCode, unsandboxed (for dotfiles, monitors, system admin)
+
+**Threat model** (see `.agents/artifacts/agent-isolation-and-security/decisions.org`):
+1. **Credential isolation** — SSH keys, AWS creds, 1Password never enter sandbox; SSH agent forwarding for auth
+2. **Network containment** — allowlist only (github, gitlab, AWS, Atlassian, package registries, model APIs); everything else blocked
+3. **Destructive-op prevention** — dangerous_commands group blocks `rm -rf`, `git push --force`, etc.
+4. **Supply chain** — nice-to-have, covered by review gates
+
+**Verification:** `~/.config/nono/test-sandbox.sh` tests all isolation properties (10 checks).
+
+**Profile:** `opencode-sandbox` extends `nolabs-ai/opencode`, defined in `~/.config/nono/profiles/opencode-sandbox.json`.
+
 Every skill and agent is listed in the [README](README.md).
