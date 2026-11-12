@@ -1,0 +1,19 @@
+{
+  "name": "bg-tasks",
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test 'test/*.test.ts'"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./rpc": "./rpc.ts",
+    "./tui": "./tui.tsx"
+  },
+  "dependencies": { "@opencode/plugin": "latest" },
+  "peerDependencies": {
+    "@opentui/core": ">=0.6.6",
+    "@opentui/solid": ">=0.6.6",
+    "solid-js": ">=1.9.0"
+  }
+}

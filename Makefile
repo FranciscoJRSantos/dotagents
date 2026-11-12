@@ -33,11 +33,11 @@ else
 RSYNC_DRY :=
 endif
 
-.PHONY: check-pandoc deploy deploy-skills deploy-agents deploy-global drift lint lint-skills lint-agents lint-docs test list-skills list-agents
+.PHONY: check-pandoc deploy deploy-skills deploy-agents deploy-plugins deploy-global test-plugins drift lint lint-skills lint-agents lint-docs test list-skills list-agents
 
 ## Deploy everything to OpenCode and Claude Code (skills, agents, global rules).
 ## Each target dir keeps a .personal-agents-manifest; only listed items are touched.
-deploy: check-pandoc deploy-skills deploy-agents deploy-global
+deploy: check-pandoc deploy-skills deploy-agents deploy-plugins deploy-global
 
 ## bin/md2org needs pandoc; fail before anything is deployed or linted without it.
 check-pandoc:
@@ -69,6 +69,13 @@ deploy-agents: check-pandoc
 	@echo "Deploying agent partials and bin/ scripts to $(AGENTS_DIR)..."
 	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(AGENTS_DIR)" $(AGENTS_DIR_ITEMS)
 
+## Plugins → ~/.config/opencode/plugins/ (manifest-tracked; the nono-sandbox symlink there is left alone)
+OPENCODE_PLUGINS_DIR ?= $(HOME)/.config/opencode/plugins
+
+deploy-plugins:
+	@echo "Deploying plugins to $(OPENCODE_PLUGINS_DIR)..."
+	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_PLUGINS_DIR)" plugins/*/
+
 ## Global rules → ~/.config/opencode/AGENTS.md
 ## The source file is gitignored; skips with a warning when it is absent.
 deploy-global:
@@ -88,6 +95,7 @@ drift:
 	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(OPENCODE_AGENTS_DIR)" --md-only || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(CLAUDE_AGENTS_DIR)" --claude || status=1; \
 	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(AGENTS_DIR)" $(AGENTS_DIR_ITEMS) || status=1; \
+	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(OPENCODE_PLUGINS_DIR)" plugins/*/ || status=1; \
 	if [ ! -f "$(GLOBAL_AGENTS_SRC)" ]; then \
 		echo "INFO  $(GLOBAL_AGENTS_SRC) not found — skipping global rules drift"; \
 	elif [ ! -f "$(GLOBAL_AGENTS_DEST)" ]; then \
@@ -110,8 +118,12 @@ list-agents:
 	@echo "Agents ($(shell ls $(AGENTS_SRC)/*.md 2>/dev/null | wc -l)):" && ls $(AGENTS_SRC)/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null || echo "(no agents)"
 
 ## Run the converter and bin/ script tests (pytest from mise python)
-test:
+test: test-plugins
 	python3 -m pytest -q tests/
+
+## Plugin unit tests (node's built-in runner strips TS types; no install needed)
+test-plugins:
+	@for d in plugins/*/; do (cd "$$d" && node --test 'test/*.test.ts') || exit 1; done
 
 ## Validate skills, agents and docs, then run the tests
 lint: check-pandoc lint-skills lint-agents lint-docs test
