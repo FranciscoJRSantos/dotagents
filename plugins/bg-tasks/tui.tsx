@@ -1,6 +1,7 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { createSignal, For, Show } from "solid-js"
 import { BgTasks } from "./rpc.ts"
+import { killSelected, pickerOptions } from "./picker.ts"
 import { footerText, reduce, sidebarRows, toastFor, type UiAction, type UiState } from "./tui-state.ts"
 
 const FLASH_MS = 5_000
@@ -38,6 +39,57 @@ export default Plugin.define({
         return text() ? <text fg={context.theme.text.base}>{text()}</text> : null
       },
     })
+
+    const currentSession = () => {
+      const route = context.ui.router.current() as { type?: string; sessionID?: string } | undefined
+      return route?.type === "session" ? route.sessionID : undefined
+    }
+
+    async function openPicker() {
+      const options = pickerOptions(state(), currentSession(), Date.now())
+      if (options.length === 0) {
+        context.ui.toast.show({ title: "Background tasks", message: "No background tasks in this session", variant: "warning" })
+        return
+      }
+      const id = await context.ui.dialog.select({
+        title: "Background tasks  (enter: log tail, ctrl+k: kill)",
+        options,
+        actions: [
+          {
+            bind: "ctrl+k",
+            title: "Kill",
+            onTrigger: async (value: string) => {
+              context.ui.dialog.clear() // settle the picker first so a later Enter cannot race the kill
+              const toast = await killSelected(rpc as any, state(), value)
+              context.ui.toast.show({ title: "Background task", ...toast })
+            },
+          },
+        ],
+      } as any)
+      if (!id) return
+      let text = ""
+      try {
+        text = (await rpc.output({ id: id as string, bytes: 4_000 })).text
+      } catch (err) {
+        text = `could not read log: ${err instanceof Error ? err.message : String(err)}`
+      }
+      await context.ui.dialog.alert({ title: `bg task ${id}`, message: text || "(no output yet)" })
+      await openPicker()
+    }
+
+    context.keymap.layer(() => ({
+      mode: "global",
+      commands: [
+        {
+          id: "bg-tasks.open",
+          title: "Background tasks",
+          group: "Background tasks",
+          palette: true,
+          slash: { name: "bg" },
+          run: () => void openPicker().catch((err) => console.error("bg-tasks picker:", err)),
+        },
+      ],
+    }))
 
     const [now, setNow] = createSignal(Date.now())
     const ticker = setInterval(() => setNow(Date.now()), 1_000)

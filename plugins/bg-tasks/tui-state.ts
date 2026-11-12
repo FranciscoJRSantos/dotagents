@@ -33,7 +33,7 @@ export function reduce(state: UiState, action: UiAction): UiState {
   }
 }
 
-const failed = (t: Task) => t.status === "killed" || t.signal != null || (t.exitCode ?? 0) !== 0
+export const failed = (t: Task) => t.status === "killed" || t.signal != null || (t.exitCode ?? 0) !== 0
 
 export function footerText(state: UiState, sessionID: string): string {
   const mine = Object.values(state.tasks).filter((t) => t.sessionID === sessionID)
