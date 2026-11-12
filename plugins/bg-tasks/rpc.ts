@@ -30,7 +30,7 @@ export const BgTasks = Rpc.define({
   methods: {
     list: { output: obj({ tasks: { type: "array", items: task } }, ["tasks"]) },
     output: {
-      input: obj({ id: str, bytes: num }, ["id"]),
+      input: obj({ id: str, bytes: { type: "number", minimum: 0 } }, ["id"]),
       output: obj({ text: str }, ["text"]),
       errors: { unknown_task: obj({ id: str }, ["id"]) },
     },

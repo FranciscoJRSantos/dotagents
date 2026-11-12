@@ -87,21 +87,17 @@ export default Plugin.define({
       },
     })
 
+    const known = (id: string) => mgr.list().some((t) => t.id === id)
+
     registration = await ctx.rpc.register(BgTasks, {
       list: async () => ({ tasks: mgr.list() }),
       output: async (input: any, context: any) => {
-        try {
-          return { text: mgr.output(input.id, input.bytes) }
-        } catch {
-          return context.error("unknown_task", `Unknown background task: ${input.id}`, { id: input.id })
-        }
+        if (!known(input.id)) return context.error("unknown_task", `Unknown background task: ${input.id}`, { id: input.id })
+        return { text: mgr.output(input.id, input.bytes) }
       },
       kill: async (input: any, context: any) => {
-        try {
-          return { task: mgr.kill(input.id) }
-        } catch {
-          return context.error("unknown_task", `Unknown background task: ${input.id}`, { id: input.id })
-        }
+        if (!known(input.id)) return context.error("unknown_task", `Unknown background task: ${input.id}`, { id: input.id })
+        return { task: mgr.kill(input.id) }
       },
     } as any)
 

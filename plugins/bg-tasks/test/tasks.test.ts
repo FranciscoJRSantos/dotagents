@@ -132,3 +132,30 @@ test("an exited task records endedAt", async () => {
   const t = mgr.get(task.id)
   assert.ok(typeof t.endedAt === "number" && t.endedAt >= t.startedAt)
 })
+
+test("tail reads only the end of a large log", async () => {
+  const { writeFileSync } = await import("node:fs")
+  const { tail } = await import("../tasks.ts")
+  const p = join(mkdtempSync(join(tmpdir(), "bgtail-")), "big.log")
+  writeFileSync(p, "a".repeat(1_000_000) + "END")
+  const out = tail(p, 10)
+  assert.ok(out.startsWith("…(truncated)\n"))
+  assert.ok(out.endsWith("aaaaaaaEND"))
+  assert.equal(tail(p, 2_000_000).length, 1_000_003)
+})
+
+test("a burst larger than the poll cap is skipped and early matches still arrive", async () => {
+  const events: TaskEvent[] = []
+  const mgr = createTaskManager({ root: mkdtempSync(join(tmpdir(), "bgcap-")), cwd: "/tmp", emit: (e) => events.push(e) })
+  // prints an early hit, then ~3 MB of filler in one go
+  mgr.start({ command: "echo early-hit; head -c 3000000 /dev/zero | tr '\\0' 'x'; echo; sleep 3", watch: "early-hit" }, "ses1")
+  await until(() => events.some((e) => e.type === "matched"))
+  assert.ok(events.some((e) => e.type === "matched"))
+  mgr.shutdown()
+})
+
+test("task ids are unique per process", () => {
+  const root = mkdtempSync(join(tmpdir(), "bgid-"))
+  const a = createTaskManager({ root, cwd: "/tmp", emit: () => {} }).start({ command: "true" }, "s")
+  assert.ok(a.id.includes(process.pid.toString(36)))
+})

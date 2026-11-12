@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { closeSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs"
+import { closeSync, fstatSync, mkdirSync, openSync, readSync, statSync } from "node:fs"
 import { join } from "node:path"
 
 export type Task = {
@@ -28,15 +28,29 @@ export type StartInput = { command: string; cwd?: string; watch?: string; timeou
 
 export const TAIL_BYTES = 8_000
 const MATCH_LIMIT = 20
+const POLL_CAP = 1 << 20 // per-tick read bound; bursts beyond it are skipped, not buffered
 
 export function tail(path: string, bytes = TAIL_BYTES): string {
   try {
     const size = statSync(path).size
-    const buf = readFileSync(path)
-    const text = buf.subarray(Math.max(0, size - bytes)).toString("utf8")
+    const text = readFrom(path, Math.max(0, size - bytes)).toString("utf8")
     return size > bytes ? `…(truncated)\n${text}` : text
   } catch {
     return ""
+  }
+}
+
+/** Read from `start` to EOF without loading the bytes before it. */
+function readFrom(path: string, start: number, max = Infinity): Buffer {
+  const fd = openSync(path, "r")
+  try {
+    const len = Math.min(fstatSync(fd).size - start, max)
+    if (len <= 0) return Buffer.alloc(0)
+    const buf = Buffer.alloc(len)
+    const n = readSync(fd, buf, 0, len, start)
+    return buf.subarray(0, n)
+  } finally {
+    closeSync(fd)
   }
 }
 
@@ -92,7 +106,7 @@ export function createTaskManager(opts: {
 
   function start(input: StartInput, sessionID: string): Task {
     const re = validateWatch(input.watch) // before spawn: a bad regex must not leave a task running
-    const id = `bg${Date.now().toString(36)}${(counter++).toString(36)}`
+    const id = `bg${Date.now().toString(36)}${process.pid.toString(36)}${(counter++).toString(36)}`
     const log = join(opts.root, `${id}.log`)
     const fd = openSync(log, "a")
     const child = spawn("/bin/sh", ["-lc", input.command], {
@@ -112,7 +126,7 @@ export function createTaskManager(opts: {
       status: "running",
     }
     tasks.set(id, task)
-    const timers: ReturnType<typeof setInterval>[] = []
+    const timers: { stop: () => void }[] = []
     const snapshot = (): Task => ({ ...task })
 
     if (re) {
@@ -120,16 +134,22 @@ export function createTaskManager(opts: {
       let partial = ""
       let sent = 0
       const poll = () => {
-        let buf: Buffer
+        let chunk: Buffer
+        let size: number
         try {
-          buf = readFileSync(log)
+          size = statSync(log).size
+          chunk = readFrom(log, offset, POLL_CAP)
         } catch {
           return
         }
-        if (buf.length <= offset) return
-        const lines = (partial + buf.subarray(offset).toString("utf8")).split("\n")
-        offset = buf.length
+        if (chunk.length === 0) return
+        const lines = (partial + chunk.toString("utf8")).split("\n")
+        offset += chunk.length
         partial = lines.pop() ?? ""
+        if (size > offset) {
+          offset = size // burst larger than the cap: drop the rest, matches past MATCH_LIMIT are discarded anyway
+          partial = ""
+        }
         for (const line of lines) {
           if (closed) return
           const bounded = line.slice(0, 500) // caps regex backtracking input on the server's main loop
@@ -138,23 +158,20 @@ export function createTaskManager(opts: {
           opts.emit({ type: "matched", taskID: id, line: bounded })
         }
       }
-      timers.push(setInterval(poll, 1000))
+      const t = setInterval(poll, 1000)
+      timers.push({ stop: () => clearInterval(t) })
       stops.set(id, poll)
     }
 
     if (input.timeout) {
-      timers.push(
-        setTimeout(() => {
-          if (task.status === "running") kill(id, "timeout")
-        }, input.timeout * 1000) as unknown as ReturnType<typeof setInterval>,
-      )
+      const t = setTimeout(() => {
+        if (task.status === "running") kill(id, "timeout")
+      }, input.timeout * 1000)
+      timers.push({ stop: () => clearTimeout(t) })
     }
 
     const cleanup = () => {
-      timers.forEach((t) => {
-        clearInterval(t)
-        clearTimeout(t)
-      })
+      timers.forEach((t) => t.stop())
       const k = kills.get(id)
       if (k?.escalate) clearTimeout(k.escalate)
       kills.delete(id)

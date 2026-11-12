@@ -19,6 +19,7 @@ export default Plugin.define({
       apply({ type: "snapshot", tasks: tasks as any })
     } catch {}
 
+    const flashTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const stops = (["started", "matched", "exited", "notified"] as const).map((name) =>
       (rpc.events as any).on(name, (event: { data: any }) => {
         const action = { type: name, ...event.data } as UiAction
@@ -31,9 +32,10 @@ export default Plugin.define({
             .notify({ ...attention, notification: { when: "blurred" } })
             .catch((err: unknown) => console.error("bg-tasks attention:", err))
         }
-        if (name === "exited") {
+        if (name === "exited" && event.data.reason !== "reload") {
           const id = event.data.task.id
-          setTimeout(() => apply({ type: "flash-expired", taskID: id }), FLASH_MS)
+          clearTimeout(flashTimers.get(id))
+          flashTimers.set(id, setTimeout(() => apply({ type: "flash-expired", taskID: id }), FLASH_MS))
         }
       }),
     )
@@ -125,6 +127,7 @@ export default Plugin.define({
     })
 
     return () => {
+      flashTimers.forEach(clearTimeout)
       clearInterval(ticker)
       unSidebar?.()
       stops.forEach((stop: () => void) => stop())

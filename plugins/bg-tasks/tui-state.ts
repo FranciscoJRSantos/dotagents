@@ -20,7 +20,8 @@ export function reduce(state: UiState, action: UiAction): UiState {
       return {
         ...state,
         tasks: { ...state.tasks, [action.task.id]: action.task },
-        flash: { ...state.flash, [action.task.id]: true },
+        // a plugin reload is routine, not a result worth flashing
+        flash: action.reason === "reload" ? state.flash : { ...state.flash, [action.task.id]: true },
       }
     case "notified":
       return { ...state, notified: { ...state.notified, [action.taskID]: { ok: action.ok, error: action.error, at: action.at } } }
