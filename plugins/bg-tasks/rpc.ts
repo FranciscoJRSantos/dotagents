@@ -17,6 +17,7 @@ const task = obj(
     pid: num,
     log: str,
     startedAt: num,
+    endedAt: num,
     status: { enum: ["running", "exited", "killed"] },
     exitCode: { type: ["number", "null"] },
     signal: { type: ["string", "null"] },

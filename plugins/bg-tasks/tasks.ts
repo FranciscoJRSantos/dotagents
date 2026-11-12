@@ -9,6 +9,7 @@ export type Task = {
   pid: number
   log: string
   startedAt: number
+  endedAt?: number
   status: "running" | "exited" | "killed"
   exitCode?: number | null
   signal?: string | null
@@ -166,6 +167,7 @@ export function createTaskManager(opts: {
       const k = cleanup()
       if (closed) return // shutdown() already reported this task
       // "killed" only when a signal really ended it; a clean exit during the grace window is "exited".
+      task.endedAt = Date.now()
       task.status = k && signal ? "killed" : "exited"
       task.exitCode = code
       task.signal = signal
@@ -175,6 +177,7 @@ export function createTaskManager(opts: {
       stops.delete(id)
       cleanup()
       if (closed) return
+      task.endedAt = Date.now()
       task.status = "exited"
       task.exitCode = -1
       opts.emit({ type: "exited", task: snapshot(), reason: "error", detail: err.message })
@@ -197,6 +200,7 @@ export function createTaskManager(opts: {
         if (t.status !== "running") continue
         // Report first so the cause is visible even though the unloading plugin can no longer deliver.
         t.status = "killed"
+        t.endedAt = Date.now()
         opts.emit({ type: "exited", task: { ...t }, reason: "reload", detail: "killed: plugin reload" })
         signalGroup(t, "SIGTERM")
         setTimeout(() => signalGroup(t, "SIGKILL"), graceMs).unref() // survives unload; no-op if already gone

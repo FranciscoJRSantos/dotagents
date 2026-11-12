@@ -124,3 +124,11 @@ test("no matched events are emitted after shutdown", async () => {
   await new Promise((r) => setTimeout(r, 1500))
   assert.equal(events.filter((e) => e.type === "matched").length, 0)
 })
+
+test("an exited task records endedAt", async () => {
+  const { mgr, events } = setup()
+  const task = mgr.start({ command: "true" }, "ses1")
+  await until(() => events.some((e) => e.type === "exited"))
+  const t = mgr.get(task.id)
+  assert.ok(typeof t.endedAt === "number" && t.endedAt >= t.startedAt)
+})

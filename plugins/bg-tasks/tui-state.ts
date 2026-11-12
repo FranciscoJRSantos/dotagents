@@ -4,6 +4,8 @@ export type UiState = {
   tasks: Record<string, Task>
   /** Tasks whose exit result is still shown in the footer. */
   flash: Record<string, true>
+  /** Latest delivery outcome per task. */
+  notified: Record<string, { ok: boolean; error?: string; at: number }>
 }
 
 export type UiAction = TaskEvent | { type: "snapshot"; tasks: Task[] } | { type: "flash-expired"; taskID: string }
@@ -11,14 +13,17 @@ export type UiAction = TaskEvent | { type: "snapshot"; tasks: Task[] } | { type:
 export function reduce(state: UiState, action: UiAction): UiState {
   switch (action.type) {
     case "snapshot":
-      return { tasks: Object.fromEntries(action.tasks.map((t) => [t.id, t])), flash: {} }
+      return { ...state, tasks: Object.fromEntries(action.tasks.map((t) => [t.id, t])), flash: {} }
     case "started":
       return { ...state, tasks: { ...state.tasks, [action.task.id]: action.task } }
     case "exited":
       return {
+        ...state,
         tasks: { ...state.tasks, [action.task.id]: action.task },
         flash: { ...state.flash, [action.task.id]: true },
       }
+    case "notified":
+      return { ...state, notified: { ...state.notified, [action.taskID]: { ok: action.ok, error: action.error, at: action.at } } }
     case "flash-expired": {
       const { [action.taskID]: _gone, ...flash } = state.flash
       return { ...state, flash }
@@ -53,4 +58,36 @@ export function toastFor(event: TaskEvent): Toast | undefined {
     return { message: `bg task ${event.taskID}: agent not notified (${event.error ?? "unknown error"})`, variant: "error" }
   }
   return undefined
+}
+
+export function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`
+  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`
+}
+
+export function truncate(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim()
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+const hhmm = (at: number) => {
+  const d = new Date(at)
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+
+export type SidebarRow = { id: string; main: string; notice?: string }
+
+export function sidebarRows(state: UiState, sessionID: string, now: number): SidebarRow[] {
+  return Object.values(state.tasks)
+    .filter((t) => t.sessionID === sessionID)
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map((t) => {
+      const icon = t.status === "running" ? "⚙" : failed(t) ? "✗" : "✓"
+      const elapsed = formatElapsed(Math.max(0, (t.endedAt ?? now) - t.startedAt))
+      const n = state.notified[t.id]
+      const notice = n ? (n.ok ? `↳ agent notified ${hhmm(n.at)} ✓` : `↳ ✗ delivery failed: ${n.error ?? "unknown error"}`) : undefined
+      return { id: t.id, main: `${icon} ${t.id} ${elapsed}  ${truncate(t.command, 40)}`, notice }
+    })
 }
