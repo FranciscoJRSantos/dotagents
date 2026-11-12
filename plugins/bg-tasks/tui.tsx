@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin/tui"
 import { createSignal, For, Show } from "solid-js"
 import { BgTasks } from "./rpc.ts"
 import { killSelected, pickerOptions } from "./picker.ts"
-import { footerText, reduce, sidebarRows, toastFor, type UiAction, type UiState } from "./tui-state.ts"
+import { attentionFor, footerText, reduce, sidebarRows, toastFor, type UiAction, type UiState } from "./tui-state.ts"
 
 const FLASH_MS = 5_000
 
@@ -25,6 +25,12 @@ export default Plugin.define({
         apply(action)
         const toast = toastFor(action as any)
         if (toast) context.ui.toast.show({ title: "Background task", ...toast })
+        const attention = attentionFor(action as any)
+        if (attention) {
+          void context.attention
+            .notify({ ...attention, notification: { when: "blurred" } })
+            .catch((err: unknown) => console.error("bg-tasks attention:", err))
+        }
         if (name === "exited") {
           const id = event.data.task.id
           setTimeout(() => apply({ type: "flash-expired", taskID: id }), FLASH_MS)

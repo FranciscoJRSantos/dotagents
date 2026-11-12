@@ -1,4 +1,4 @@
-import type { Task, TaskEvent } from "./tasks.ts"
+import type { ExitReason, Task, TaskEvent } from "./tasks.ts"
 
 export type UiState = {
   tasks: Record<string, Task>
@@ -46,13 +46,16 @@ export function footerText(state: UiState, sessionID: string): string {
 
 export type Toast = { message: string; variant: "success" | "error" | "warning" }
 
+function exitMessage(t: Task, reason: ExitReason | undefined): Toast {
+  if (reason === "timeout") return { message: `bg task ${t.id} hit its timeout`, variant: "warning" }
+  if (failed(t)) return { message: `bg task ${t.id} failed (exit ${t.exitCode ?? t.signal ?? "?"})`, variant: "error" }
+  return { message: `bg task ${t.id} finished`, variant: "success" }
+}
+
 export function toastFor(event: TaskEvent): Toast | undefined {
   if (event.type === "exited") {
-    const t = event.task
     if (event.reason === "reload") return undefined // routine config reload, not a failure
-    if (event.reason === "timeout") return { message: `bg task ${t.id} hit its timeout`, variant: "warning" }
-    if (failed(t)) return { message: `bg task ${t.id} failed (exit ${t.exitCode ?? t.signal ?? "?"})`, variant: "error" }
-    return { message: `bg task ${t.id} finished`, variant: "success" }
+    return exitMessage(event.task, event.reason)
   }
   if (event.type === "notified" && !event.ok) {
     return { message: `bg task ${event.taskID}: agent not notified (${event.error ?? "unknown error"})`, variant: "error" }
@@ -90,4 +93,10 @@ export function sidebarRows(state: UiState, sessionID: string, now: number): Sid
       const notice = n ? (n.ok ? `↳ agent notified ${hhmm(n.at)} ✓` : `↳ ✗ delivery failed: ${n.error ?? "unknown error"}`) : undefined
       return { id: t.id, main: `${icon} ${t.id} ${elapsed}  ${truncate(t.command, 40)}`, notice }
     })
+}
+
+/** Blurred-terminal notification: natural exit, failure and timeout only (not matches, delivery, user kills or reloads). */
+export function attentionFor(event: TaskEvent): { title: string; message: string } | undefined {
+  if (event.type !== "exited" || event.reason === "reload" || event.reason === "killed") return undefined
+  return { title: "OpenCode background task", message: exitMessage(event.task, event.reason).message }
 }

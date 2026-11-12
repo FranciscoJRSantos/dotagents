@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { reduce, footerText, toastFor, sidebarRows, formatElapsed, truncate, type UiState } from "../tui-state.ts"
+import { reduce, footerText, toastFor, attentionFor, sidebarRows, formatElapsed, truncate, type UiState } from "../tui-state.ts"
 import type { Task } from "../tasks.ts"
 
 const task = (over: Partial<Task> = {}): Task => ({
@@ -114,4 +114,16 @@ test("snapshot keeps already-known delivery notices", () => {
 test("elapsed never goes negative for a task newer than the last tick", () => {
   const s = reduce(empty, { type: "started", task: task({ startedAt: 5_000 }) })
   assert.match(sidebarRows(s, "s1", 4_000)[0].main, /^⚙ bg1 0s /)
+})
+
+test("attention fires on exit and timeout only", () => {
+  const t = task({ status: "exited", exitCode: 0 })
+  assert.match(attentionFor({ type: "exited", task: t })!.message, /bg1.*finished/)
+  assert.match(attentionFor({ type: "exited", task: { ...t, exitCode: 2 } })!.message, /failed/)
+  assert.match(attentionFor({ type: "exited", task: t, reason: "timeout" })!.message, /timeout/)
+  assert.equal(attentionFor({ type: "matched", taskID: "bg1", line: "x" }), undefined)
+  assert.equal(attentionFor({ type: "started", task: task() }), undefined)
+  assert.equal(attentionFor({ type: "notified", taskID: "bg1", kind: "exit", ok: false, at: 1 }), undefined)
+  assert.equal(attentionFor({ type: "exited", task: t, reason: "reload" }), undefined)
+  assert.equal(attentionFor({ type: "exited", task: { ...t, status: "killed" }, reason: "killed" }), undefined)
 })
