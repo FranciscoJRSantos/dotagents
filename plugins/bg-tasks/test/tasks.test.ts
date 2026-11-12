@@ -81,8 +81,8 @@ test("a failed spawn never signals PID 1 and leaves no watch timer behind", asyn
   try {
     const task = mgr.start({ command: "echo hi", cwd: "/nonexistent-dir", watch: "hi" }, "ses1")
     mgr.kill(task.id)
-    mgr.shutdown()
     await until(() => events.some((e) => e.type === "exited"))
+    mgr.shutdown()
   } finally {
     process.kill = real
   }
@@ -99,4 +99,28 @@ test("a task that exits cleanly during the kill grace window is exited, not kill
   await until(() => events.some((e) => e.type === "exited"))
   assert.equal(mgr.get(task.id).status, "exited")
   assert.equal(mgr.get(task.id).exitCode, 0)
+})
+
+test("shutdown emits exited with reason reload before signalling, and nothing after", async () => {
+  const { mgr, events } = setup()
+  const task = mgr.start({ command: "sleep 30" }, "ses1")
+  mgr.shutdown()
+  const exited = events.filter((e) => e.type === "exited")
+  assert.equal(exited.length, 1)
+  const e = exited[0]
+  assert.ok(e.type === "exited")
+  assert.equal(e.reason, "reload")
+  assert.equal(e.detail, "killed: plugin reload")
+  assert.equal(e.task.status, "killed")
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal(events.filter((x) => x.type === "exited").length, 1)
+  assert.equal(mgr.get(task.id).status, "killed")
+})
+
+test("no matched events are emitted after shutdown", async () => {
+  const { mgr, events } = setup(100)
+  mgr.start({ command: "sleep 0.2; echo hit; sleep 5", watch: "hit" }, "ses1")
+  mgr.shutdown()
+  await new Promise((r) => setTimeout(r, 1500))
+  assert.equal(events.filter((e) => e.type === "matched").length, 0)
 })

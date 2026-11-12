@@ -43,7 +43,7 @@ export const BgTasks = Rpc.define({
     started: { schema: obj({ task }, ["task"]) },
     matched: { schema: obj({ taskID: str, line: str }, ["taskID", "line"]) },
     exited: {
-      schema: obj({ task, reason: { enum: ["exit", "timeout", "killed", "error"] }, detail: str }, ["task"]),
+      schema: obj({ task, reason: { enum: ["exit", "timeout", "killed", "error", "reload"] }, detail: str }, ["task"]),
     },
     notified: {
       schema: obj(

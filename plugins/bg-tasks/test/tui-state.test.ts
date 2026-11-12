@@ -64,3 +64,8 @@ test("a task ended by an external signal counts as failed", () => {
   assert.equal(footerText(s, "s1"), "✗ failed")
   assert.equal(toastFor({ type: "exited", task: t })!.variant, "error")
 })
+
+test("a plugin reload does not raise an error toast", () => {
+  const t = task({ status: "killed" })
+  assert.equal(toastFor({ type: "exited", task: t, reason: "reload", detail: "killed: plugin reload" }), undefined)
+})

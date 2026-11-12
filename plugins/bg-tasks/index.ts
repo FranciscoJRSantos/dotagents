@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin"
 import { homedir } from "node:os"
 import { basename, join } from "node:path"
-import { deliver } from "./notify.ts"
+import { createMatchBatcher, deliver } from "./notify.ts"
 import { BgTasks } from "./rpc.ts"
 import { createTaskManager, tail, TAIL_BYTES, type Task, type TaskEvent } from "./tasks.ts"
 
@@ -31,25 +31,48 @@ export default Plugin.define({
       void (registration?.events.emit as any)?.(type, data)?.catch?.(() => {})
     }
 
-    const synthetic = (input: { sessionID: string; text: string }) => ctx.session.synthetic(input)
+    const synthetic = (input: any) => ctx.session.synthetic(input)
+    let closed = false
+    const wakeOnMatch = new Set<string>()
+    const batchers = new Map<string, ReturnType<typeof createMatchBatcher>>()
+    const batcherFor = (taskID: string) => {
+      let b = batchers.get(taskID)
+      if (!b) {
+        b = createMatchBatcher({
+          windowMs: 5_000,
+          flush(lines) {
+            if (closed) return
+            const task = mgr.get(taskID)
+            void deliver(synthetic, publish, {
+              taskID,
+              sessionID: task.sessionID,
+              kind: "match",
+              wake: wakeOnMatch.has(taskID),
+              description: `bg task ${taskID} matched its watch pattern (${lines.length} line${lines.length === 1 ? "" : "s"})`,
+              text: `Background task ${taskID} matched its watch pattern:\n${lines.join("\n")}`,
+            })
+          },
+        })
+        batchers.set(taskID, b)
+      }
+      return b
+    }
+
     const mgr = createTaskManager({
       root,
       cwd: ctx.location.directory,
       emit(event) {
         publish(event)
-        if (event.type === "matched") {
-          const task = mgr.get(event.taskID)
-          void deliver(synthetic, publish, {
-            taskID: task.id,
-            sessionID: task.sessionID,
-            kind: "match",
-            text: `Background task ${task.id} matched its watch pattern: ${event.line}`,
-          })
-        }
+        if (event.type === "matched") batcherFor(event.taskID).add(event.line)
         if (event.type === "exited") {
           const t = event.task
+          batchers.get(t.id)?.flushNow()
+          batchers.delete(t.id)
+          wakeOnMatch.delete(t.id)
+          if (event.reason === "reload" || closed) return // plugin is unloading; cannot deliver
           const timeout = event.reason === "timeout"
           const secs = ((Date.now() - t.startedAt) / 1000).toFixed(1)
+          const what = timeout ? "hit its timeout" : event.reason === "error" ? "failed to start" : t.status
           const text = event.reason === "error"
             ? `Background task ${t.id} failed to start: ${event.detail}`
             : `Background task ${t.id} ${timeout ? "hit its timeout and was killed" : t.status} after ${secs}s (exit=${t.exitCode ?? "none"}${t.signal ? `, signal=${t.signal}` : ""}).\nCommand: ${t.command}\nLog: ${t.log}\nLast output:\n${tail(t.log, 2_000)}`
@@ -57,6 +80,7 @@ export default Plugin.define({
             taskID: t.id,
             sessionID: t.sessionID,
             kind: timeout ? "timeout" : "exit",
+            description: `bg task ${t.id} ${what} (exit ${t.exitCode ?? t.signal ?? "?"}, ${secs}s)`,
             text,
           })
         }
@@ -96,11 +120,16 @@ export default Plugin.define({
                 "Optional JS regex. Each new log line matching it sends a notification to the session (max 20), like a monitor.",
             },
             timeout: { type: "number", description: "Optional seconds after which the task is killed" },
+            wake: {
+              type: "boolean",
+              description: "Watch matches wake an idle agent (default false: matches are queued until the agent's next turn).",
+            },
           },
           ["command"],
         ),
         execute: async (input: any, context: any) => {
           const task = mgr.start(input, context.sessionID)
+          if (input.wake) wakeOnMatch.add(task.id)
           return { content: `Started ${summary(task)}` }
         },
       })
@@ -143,6 +172,9 @@ export default Plugin.define({
       })
     })
 
-    return () => mgr.shutdown()
+    return () => {
+      closed = true // drop pending batches and retries instead of delivering into a torn-down context
+      mgr.shutdown()
+    }
   },
 })

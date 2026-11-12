@@ -14,7 +14,7 @@ export type Task = {
   signal?: string | null
 }
 
-export type ExitReason = "exit" | "timeout" | "killed" | "error"
+export type ExitReason = "exit" | "timeout" | "killed" | "error" | "reload"
 export type NotifyKind = "exit" | "match" | "timeout"
 
 export type TaskEvent =
@@ -59,6 +59,7 @@ export function createTaskManager(opts: {
   const kills = new Map<string, { reason: ExitReason; escalate?: ReturnType<typeof setTimeout> }>()
   const stops = new Map<string, () => void>()
   let counter = 0
+  let closed = false
   mkdirSync(opts.root, { recursive: true })
 
   const find = (id: string) => {
@@ -129,6 +130,7 @@ export function createTaskManager(opts: {
         offset = buf.length
         partial = lines.pop() ?? ""
         for (const line of lines) {
+          if (closed) return
           const bounded = line.slice(0, 500) // caps regex backtracking input on the server's main loop
           if (sent >= MATCH_LIMIT || !re.test(bounded)) continue
           sent++
@@ -162,6 +164,7 @@ export function createTaskManager(opts: {
       stops.get(id)?.()
       stops.delete(id)
       const k = cleanup()
+      if (closed) return // shutdown() already reported this task
       // "killed" only when a signal really ended it; a clean exit during the grace window is "exited".
       task.status = k && signal ? "killed" : "exited"
       task.exitCode = code
@@ -171,6 +174,7 @@ export function createTaskManager(opts: {
     child.on("error", (err) => {
       stops.delete(id)
       cleanup()
+      if (closed) return
       task.status = "exited"
       task.exitCode = -1
       opts.emit({ type: "exited", task: snapshot(), reason: "error", detail: err.message })
@@ -188,7 +192,15 @@ export function createTaskManager(opts: {
     output: (id: string, bytes = TAIL_BYTES) => tail(find(id).log, bytes),
     /** SIGTERM every running task (plugin unload). */
     shutdown() {
-      for (const t of tasks.values()) if (t.status === "running") signalGroup(t, "SIGTERM")
+      closed = true
+      for (const t of tasks.values()) {
+        if (t.status !== "running") continue
+        // Report first so the cause is visible even though the unloading plugin can no longer deliver.
+        t.status = "killed"
+        opts.emit({ type: "exited", task: { ...t }, reason: "reload", detail: "killed: plugin reload" })
+        signalGroup(t, "SIGTERM")
+        setTimeout(() => signalGroup(t, "SIGKILL"), graceMs).unref() // survives unload; no-op if already gone
+      }
     },
   }
 }

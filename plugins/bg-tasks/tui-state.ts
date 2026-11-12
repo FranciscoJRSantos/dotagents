@@ -44,6 +44,7 @@ export type Toast = { message: string; variant: "success" | "error" | "warning" 
 export function toastFor(event: TaskEvent): Toast | undefined {
   if (event.type === "exited") {
     const t = event.task
+    if (event.reason === "reload") return undefined // routine config reload, not a failure
     if (event.reason === "timeout") return { message: `bg task ${t.id} hit its timeout`, variant: "warning" }
     if (failed(t)) return { message: `bg task ${t.id} failed (exit ${t.exitCode ?? t.signal ?? "?"})`, variant: "error" }
     return { message: `bg task ${t.id} finished`, variant: "success" }
