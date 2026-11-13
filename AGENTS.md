@@ -116,6 +116,9 @@ subagents at a time and writes its run folder `.agents/artifacts/assess-<system>
 (`preflight.org`, `surveys/<repo>.org`, later `findings.org`). The repo manifest
 `.agents/system.md` persists across runs. The surveyor writes under `.agents/**` with
 shell heredocs; the helper scripts live beside the skill (`skills/assess/*.py`).
+Triage states are the Org TODO keywords `NEW | ACCEPTED REJECTED EDITED AGREED`; a repeat
+run compares with the latest earlier run (`compare_runs.py`) and `@assess agreed` marks
+the IDs the team named, then writes draft tickets and `@spec` seeds (never Jira).
 
 `@reporting` turns a work folder into one report (assessment, status, decision or
 architecture) and owns every Confluence write: preview, `phi_scan.py` (exit 1 blocks),

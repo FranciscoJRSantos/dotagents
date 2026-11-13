@@ -4,18 +4,22 @@ Usage:
   python3 -I findings_org.py check <findings.org>
   python3 -I findings_org.py parse <file.org>
   python3 -I findings_org.py claims <survey.org>...
-  python3 -I findings_org.py build <run-dir> [repo=path ...]
+  python3 -I findings_org.py build <run-dir> [--prev <findings.org>] [repo=path ...]
+  python3 -I findings_org.py agree <findings.org> <ID>[=<note>]...
 
 check  exits 1 and lists every finding still NEW or REJECTED without a reason;
        otherwise prints the triage summary.
 parse  prints the finding records of a survey or findings file as JSON.
 claims prints only {id, repo, claim, evidence} per finding: all the verifier sees.
 build  parses surveys/*.org, applies verification.org, ranks, pre-fills OWNER
-       from git history (repo=path pairs) and writes findings.org.
+       from git history (repo=path pairs) and writes findings.org. With --prev it
+       also tags each finding against the earlier run (see compare_runs.py),
+       drops suppressed rejections and writes changes.org.
+agree  marks the named ACCEPTED or EDITED findings AGREED, with an optional note.
 
 A finding is an Org heading with a property drawer holding :ID: (see
 finding-schema.md). In findings.org the TODO keyword is the triage state:
-#+TODO: NEW | ACCEPTED REJECTED EDITED.
+#+TODO: NEW | ACCEPTED REJECTED EDITED AGREED.
 """
 import collections
 import datetime
@@ -27,15 +31,18 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import compare_runs as comparing  # noqa: E402
 import rank as ranking  # noqa: E402
 
-TRIAGE = ("NEW", "ACCEPTED", "REJECTED", "EDITED")
+TRIAGE = ("NEW", "ACCEPTED", "REJECTED", "EDITED", "AGREED")
+TODO_LINE = "#+TODO: NEW | ACCEPTED REJECTED EDITED AGREED"
 INT_FIELDS = ("impact", "interest", "effort", "confidence")
-HEADING = re.compile(r"^(\*+) (?:(NEW|ACCEPTED|REJECTED|EDITED) )?(.*)$")
+HEADING = re.compile(r"^(\*+) (?:(NEW|ACCEPTED|REJECTED|EDITED|AGREED) )?(.*)$")
 PROP = re.compile(r"^:([A-Z0-9_]+):\s*(.*)$")
 BULLET = re.compile(r"^- (Claim|Evidence|Proposal) :: (.*)$")
 PROP_ORDER = ("id", "repo", "path", "lines", "kind", "tags", "rule", "impact", "interest",
-              "effort", "confidence", "owner", "reason", "group", "top5")
+              "effort", "confidence", "owner", "reason", "group", "top5", "change",
+              "previously_rejected", "agreed", "note")
 
 
 def _blocks(path):
@@ -86,7 +93,7 @@ def parse(path):
 
 def validate(f):
     """Return a reason string when a finding is unusable for ranking, else ''."""
-    for key in ("repo", "path", "impact", "interest", "effort"):
+    for key in ("repo", "path", "kind", "impact", "interest", "effort"):
         if key not in f:
             return f"missing :{key.upper()}:"
     for key in ("impact", "interest", "effort"):
@@ -106,7 +113,7 @@ def write(findings, path):
     out = [
         "#+TITLE: Findings",
         f"#+CREATED: {now}",
-        "#+TODO: NEW | ACCEPTED REJECTED EDITED",
+        TODO_LINE,
         "",
     ]
     for f in findings:
@@ -114,8 +121,10 @@ def write(findings, path):
         out.append(":PROPERTIES:")
         for key in PROP_ORDER:
             value = f.get(key)
-            if value in (None, "", []):
+            if value in (None, "", [], False):
                 continue
+            if value is True:
+                value = "yes"
             if key == "tags":
                 value = " ".join(value)
             out.append(f":{key.upper()}: {value}")
@@ -174,7 +183,71 @@ def apply_verification(findings, path):
     return buckets
 
 
-def build(run_dir, repo_paths):
+def created(path):
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            m = re.match(r"#\+CREATED:\s*(\S+)", line)
+            if m:
+                return m.group(1)
+    return "1970-01-01T00:00:00Z"
+
+
+def mark_agreed(path, notes):
+    """Move the named ACCEPTED/EDITED findings to AGREED; notes maps id -> note."""
+    known = {f["id"]: f for f in parse(path)}
+    bad = sorted(i for i in notes if i not in known or known[i]["triage"] not in ("ACCEPTED", "EDITED"))
+    if bad:
+        raise ValueError(f"cannot mark as AGREED (unknown, or not ACCEPTED/EDITED): {', '.join(bad)}")
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    out, marked, i = [], [], 0
+    while i < len(lines):
+        m = HEADING.match(lines[i])
+        if m and i + 1 < len(lines) and lines[i + 1].strip() == ":PROPERTIES:":
+            j, fid = i + 2, None
+            while j < len(lines) and lines[j].strip() != ":END:":
+                pm = PROP.match(lines[j])
+                if pm and pm.group(1) == "ID":
+                    fid = pm.group(2).strip()
+                j += 1
+            if fid in notes:
+                out.append(f"{m.group(1)} AGREED {m.group(3)}")
+                out.extend(lines[i + 1:j])
+                if notes[fid]:
+                    out.append(f":NOTE: {notes[fid]}")
+                out.append(lines[j])
+                marked.append(fid)
+                i = j + 1
+                continue
+        out.append(TODO_LINE if lines[i].startswith("#+TODO:") else lines[i])
+        i += 1
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
+    return marked
+
+
+def write_changes(run_dir, prev, tagged, suppressed):
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    by_change = collections.defaultdict(list)
+    for f in tagged:
+        by_change[f["change"]].append(f)
+    out = ["#+TITLE: Changes since the last run", f"#+CREATED: {now}", f"#+PREVIOUS: {prev}", "", "* Summary"]
+    for tag in ("NEW", "WORSENED", "PERSISTING", "RESOLVED"):
+        out.append(f"- {tag} :: {len(by_change[tag])}")
+    out.append(f"- Suppressed earlier rejections :: {suppressed}")
+    for tag in ("NEW", "WORSENED", "PERSISTING", "RESOLVED"):
+        out += ["", f"* {tag}"]
+        for f in by_change[tag]:
+            flags = (" (agreed, not done)" if f.get("agreed") else "") + (
+                " (rejected earlier, file changed)" if f.get("previously_rejected") else "")
+            out.append(f"- {f['id']} {f['title']} ({f['repo']}){flags}")
+        if not by_change[tag]:
+            out.append("- none")
+    with open(os.path.join(run_dir, "changes.org"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
+
+
+def build(run_dir, repo_paths, prev=None):
     parsed = []
     for survey in sorted(glob.glob(os.path.join(run_dir, "surveys", "*.org"))):
         parsed.extend(parse(survey))
@@ -202,6 +275,21 @@ def build(run_dir, repo_paths):
             if repo and "owner" not in f:
                 f["owner"] = owners(repo, [f["path"]])
             ordered.append(f)
+    resolved = suppressed = 0
+    warnings = []
+    if prev:
+        if not repo_paths:
+            warnings.append("no repo=path pairs: file-change detection skipped, earlier rejections stay suppressed")
+        since = created(prev)
+        changed = set()
+        for repo, repo_path in repo_paths.items():
+            changed |= {(repo, p) for p in comparing.changed_files(repo_path, since)}
+        tagged = comparing.compare(parse(prev), ordered, changed)
+        current = [f for f in tagged if f["change"] != "RESOLVED"]
+        resolved = len(tagged) - len(current)
+        suppressed = len(ordered) - len(current)
+        ordered = current
+        write_changes(run_dir, prev, tagged, suppressed)
     out = os.path.join(run_dir, "findings.org")
     write(ordered, out)
     if buckets["open"] or buckets["fine"]:
@@ -212,7 +300,10 @@ def build(run_dir, repo_paths):
             fh.writelines(f"- {f['id']} {f['title']}\n" for f in buckets["fine"])
     return {k: len(v) for k, v in buckets.items()} | {
         "ranked": len(ordered),
+        "resolved": resolved,
+        "suppressed": suppressed,
         "malformed": malformed,
+        "warnings": warnings,
         "nothing_material": ranked["nothing_material"],
     }
 
@@ -230,7 +321,18 @@ if __name__ == "__main__":
     elif cmd == "claims" and len(sys.argv) >= 3:
         print(json.dumps(claims(sys.argv[2:])))
     elif cmd == "build" and len(sys.argv) >= 3:
-        pairs = dict(a.split("=", 1) for a in sys.argv[3:])
-        print(json.dumps(build(sys.argv[2], pairs)))
+        rest = sys.argv[3:]
+        prev = None
+        if "--prev" in rest:
+            at = rest.index("--prev")
+            prev = rest[at + 1]
+            rest = rest[:at] + rest[at + 2:]
+        print(json.dumps(build(sys.argv[2], dict(a.split("=", 1) for a in rest), prev=prev)))
+    elif cmd == "agree" and len(sys.argv) >= 4:
+        notes = {k: v for k, _, v in (a.partition("=") for a in sys.argv[3:])}
+        try:
+            print(json.dumps(mark_agreed(sys.argv[2], notes)))
+        except ValueError as err:
+            sys.exit(str(err))
     else:
         sys.exit(__doc__)

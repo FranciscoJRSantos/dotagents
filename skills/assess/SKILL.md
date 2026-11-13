@@ -50,6 +50,8 @@ OUT=$(~/.agents/bin/artifact-dir "$SLUG")
 echo "$OUT"
 ```
 
+Before anything else, archive earlier runs of this system that were already published: for every other `assess-<system>-*` folder in `.agents/artifacts/` holding a `published.org`, apply Step 14 and tell the user which ones moved, so the latest published run stays comparable in Step 8.
+
 - **`ARTIFACT_DIR=…`** — an earlier run of this month exists; ask "Resume it or start fresh?" and, on fresh, set `SLUG="$SLUG-2"` and re-run `artifact-dir` with it before anything else.
 - **`NOT FOUND: <slug>`** — a new run. Create it:
 
@@ -212,24 +214,31 @@ python3 -I "$S/findings_org.py" claims "$DIR"/surveys/*.org > "$DIR/claims.json"
 
 Start one `assess-verifier` subagent with the contents of `claims.json`, each repo's path (from the system map; for `system` findings the evidence starts with `<repo>/`, and `log-check.org:<line>` is read in the run folder) and the output path `$DIR/verification.org`. The verifier runs on a different model family from the surveyor and writes one heading per finding ID with `:CONFIDENCE:` and `:VERDICT:`. A finding with no heading counts as dropped.
 
-Buckets, applied by `findings_org.py build` in Step 8: confidence ≥80 is kept, 50–79 goes to Open questions, below 50 or with no `path:line` citation is dropped (the verifier's heading is the log), and `intentional` code goes to "Looks bad but is fine". A `GATE: BLOCKED` verifier is reported to the user; do not rank unverified findings.
+Buckets, applied by `findings_org.py build` in Step 9: confidence ≥80 is kept, 50–79 goes to Open questions, below 50 or with no `path:line` citation is dropped (the verifier's heading is the log), and `intentional` code goes to "Looks bad but is fine". A `GATE: BLOCKED` verifier is reported to the user; do not rank unverified findings.
 
-### Step 8: Rank and Write findings.org
+### Step 8: Compare with the Earlier Run
 
-One command parses the surveys, applies `verification.org`, ranks and writes `findings.org`. Pass each cloned repo as `name=path` so `OWNER` is pre-filled from git history:
+Find the latest earlier run of this system, in `.agents/artifacts/` or `.agents/archive/`:
 
 ```bash
-python3 -I "$S/findings_org.py" build "$DIR" <repo>=<path> <repo>=<path> ...
+PREV=$(python3 -I "$S/compare_runs.py" previous "$DIR") || PREV=
+echo "${PREV:-first run}"
+```
+
+No earlier run (`none`) means this is the first run: leave `PREV` empty and carry on. Otherwise Step 9 passes it to `build`. Findings match on `repo + path + kind + rule` (the title when the rule is `other`), never on line numbers, and are tagged NEW, RESOLVED, PERSISTING or WORSENED (priority went up). A finding the team rejected last time stays out unless its cited file changed in git since that run, so settled non-issues do not come back every month.
+
+### Step 9: Rank and Write findings.org
+
+Pass `--prev "$PREV"` when Step 8 found an earlier run. One command parses the surveys, applies `verification.org`, ranks and writes `findings.org`. Pass each cloned repo as `name=path` so `OWNER` is pre-filled from git history:
+
+```bash
+python3 -I "$S/findings_org.py" build "$DIR" [--prev "$PREV"] <repo>=<path> <repo>=<path> ...
 ~/.agents/bin/org-check "$DIR/findings.org"
 ```
 
-Ranking is `priority = impact × interest ÷ effort`, with security, PHI and data-correctness findings first. Groups: Quick wins (impact ≥3, effort ≤2), Strategic (impact ≥3, effort ≥3), Track (impact <3 or beyond the 15-per-repo cap), Accepted (accepted risk). Each ranked finding gets `:GROUP:` and the system Top 5 gets `:TOP5: yes`. Every heading starts as `NEW`. Print the counts `build` returns and list any `malformed` findings it skipped (a bad `:IMPACT:`, a missing `:PATH:`) as coverage gaps; if `nothing_material` is true, say "nothing material found" rather than padding the list.
+Ranking is `priority = impact × interest ÷ effort`, with security, PHI and data-correctness findings first. Groups: Quick wins (impact ≥3, effort ≤2), Strategic (impact ≥3, effort ≥3), Track (impact <3 or beyond the 15-per-repo cap), Accepted (accepted risk). Each ranked finding gets `:GROUP:` and the system Top 5 gets `:TOP5: yes`. Every heading starts as `NEW`. With `--prev`, each finding also gets `:CHANGE:` (`NEW`, `PERSISTING`, `WORSENED`), findings the team rejected earlier are dropped unless their cited file changed since, and `changes.org` lists the counts plus `RESOLVED` findings and agreed-but-not-done ones. Print the counts `build` returns and list any `malformed` findings it skipped (a bad `:IMPACT:`, a missing `:PATH:`) as coverage gaps; if `nothing_material` is true, say "nothing material found" rather than padding the list.
 
 Tell the user to open `findings.org` in Doom, move each heading to `ACCEPTED`, `REJECTED` (with a `:REASON:`) or `EDITED`, then run `@assess triage`.
-
-### Step 9: Compare with the Earlier Run
-
-Not yet implemented.
 
 ### Step 10: Hand Off to `@reporting`
 
@@ -258,15 +267,81 @@ Exit 1 lists every finding still `NEW` and every `REJECTED` finding without a `:
 
 ### Step 12: Mark the Agreed Findings
 
-Not yet implemented.
+Run this in a new session, after the team and the PO have discussed the published page. Resolve the run folder by its slug (a run archived after publishing is moved back by `artifact-dir`, reported as `REOPENED`):
+
+```bash
+OUT=$(~/.agents/bin/artifact-dir "$SLUG"); rc=$?
+echo "$OUT"
+DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
+S=<this skill's own directory, next to this SKILL.md>
+cat "$DIR/published.org"
+```
+
+Read the discussion: fetch the page named in `published.org` with `getConfluenceContent` (`detail: "full"`), and its footer and inline comments (find the operations with `discover`, query "get confluence page comments"; read-only). Match each comment to a finding ID in the page and summarise per finding in two lines: who said what, and whether it reads as agree, object or change. Also read `findings.org`.
+
+Show the summary, then ask the user: "Which finding IDs did the meeting agree on? Add a note after `=` if you want one (for example `api-03=do first`)." The agreed set is the user's decision, never inferred from the comments. Confirm before writing: "Mark these N as AGREED?" Then:
+
+```bash
+python3 -I "$S/findings_org.py" agree "$DIR/findings.org" <ID>[=<note>] <ID>[=<note>] ...
+python3 -I "$S/findings_org.py" check "$DIR/findings.org"
+```
+
+`agree` only moves `ACCEPTED` and `EDITED` findings; it fails on an unknown or rejected ID, so show the error and ask again. Nothing is written to Confluence or Jira.
 
 ### Step 13: Write Drafts
 
-Not yet implemented.
+For the AGREED findings only, write local drafts. Read them as JSON (`python3 -I "$S/findings_org.py" parse "$DIR/findings.org"`, keep `triage` AGREED), then split on `group`: `quick-wins` become tickets, `strategic` become `@spec` seeds; agreed `track` findings stay in `findings.org` with their note. Drafts are Markdown because they are pasted into Jira or fed to `@spec`.
+
+```bash
+mkdir -p "$DIR/drafts/spec-seeds"
+cat > "$DIR/drafts/tickets.md" <<'EOF'
+# Draft tickets: <system> (<YYYY-MM>)
+
+Copy these into Jira by hand; nothing here has been created.
+
+## <finding id>: <title>
+- Repo: <repo>
+- Owner: <owner>
+- Summary: <proposal, one sentence>
+- Why: <claim>
+- Evidence: <path:line>
+- Acceptance: <what proves it is fixed, one line>
+- Note: <the agreed note, or "none">
+EOF
+cat > "$DIR/drafts/spec-seeds/<finding id>.md" <<'EOF'
+# @spec seed: <title>
+
+Run `@spec <topic>` with this as the starting point.
+
+- Topic: <title>
+- Repo: <repo>
+- Problem: <claim>
+- Evidence: <path:line>
+- Direction proposed: <proposal>
+- Agreed note: <the note, or "none">
+- Open question for the grill: <the decision the team has not made yet>
+EOF
+```
+
+Write one section per quick win in `tickets.md` and one file per strategic finding in `spec-seeds/`. Never call Jira; a later `@assess tickets` mode is out of scope for this version. Tell the user the two paths.
 
 ### Step 14: Archive the Run
 
-Not yet implemented.
+A published run leaves the active folder. When `$DIR/published.org` exists, move the folder to the archive; `artifact-dir` brings it back (`REOPENED`) if a later `@assess agreed` or `@reporting` names it:
+
+```bash
+DEST=".agents/archive/$(basename "$DIR")"
+if [ -f "$DIR/published.org" ]; then
+  mkdir -p .agents/archive
+  if [ -e "$DEST" ]; then
+    echo "archive entry $DEST already exists: not moving; ask the user which to keep"
+  else
+    mv "$DIR" "$DEST" && echo "archived $(basename "$DIR")"
+  fi
+fi
+```
+
+Run it at the end of agreed mode, and at the start of a new run (Step 1) for every other `assess-<system>-*` folder in `.agents/artifacts/` that holds a `published.org`. Update `STATE.org` with `POSITION` `assess — <slug> archived`. A run with no `published.org` stays where it is: it has not reached the team yet.
 
 ---
 
