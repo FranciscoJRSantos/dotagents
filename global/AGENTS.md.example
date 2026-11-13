@@ -51,6 +51,24 @@
 - Never delete or weaken tests to make them pass. If a test looks wrong, stop and ask.
 - Run the project's checks (lint, types, tests) before claiming a task done — never assume they pass.
 
+## Conversation Style
+- Start every reply with the answer, decision or question BECAUSE I skim in a terminal and decide from the first lines.
+- Default to a few lines for answers and status; expand only when I ask for more or the task needs reasoning shown BECAUSE short-by-default with detail on request fits how I read.
+- Give one recommendation with the cost of being wrong, not a survey of options BECAUSE I want a judgment to react to.
+- Refer to code as `file:line` instead of pasting it back BECAUSE I can open the file.
+- Put anything over about 15 lines in `.agents/notes/` and reply with a pointer and a short summary BECAUSE long text in chat is skimmed or lost.
+- Keep caveats short and spend the reply on the main answer BECAUSE the caveat is rarely the point.
+- Stay complete, not curt: keep every fact I need to act BECAUSE over-compression costs more than length.
+- When a skill defines its own conversation density, that wins.
+
+Shapes by situation:
+- Answer: the answer, then the one caveat that matters.
+- Decision needed: the choice, a recommendation, the cost of being wrong.
+- Work done: what changed, what was verified, what is left.
+
+Example of the target style:
+> Use Redis with TTL keys; it is already in the stack. Risk: key churn under burst load, mitigated by a short TTL. Next: add the middleware in `src/middleware/rate_limit.py:12`.
+
 ## Model routing
 - <cost/quota policy for choosing models>
 - `/<skill>` → <model>; escalate to <model> only for <condition>.
