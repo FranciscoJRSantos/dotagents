@@ -31,7 +31,7 @@ heading as `** <title>` under `* Findings`; `findings.org` adds `TRIAGE` and
 
 Rules:
 - `IMPACT`, `INTEREST` and `EFFORT` are integers 1-5. `priority = IMPACT * INTEREST / EFFORT`.
-- `PATH`, `LINES` and the Evidence citation must exist in the repo; a finding without a citation is dropped by the verifier.
+- `PATH`, `LINES` and the Evidence citation must exist in the repo; a finding without a citation is dropped by `findings_org.py build`.
 - Evidence quotes code or config, never data: no MRN, SSN, DOB, email, phone or log line.
 - Write Org markup in prose: `=path=`, `~code~`, never backticks.
 

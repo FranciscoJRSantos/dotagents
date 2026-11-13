@@ -83,6 +83,7 @@ Primary agents are Tab-switchable during a session. Subagents run in isolated co
 |-----------------------|-------------------------------------------------|-------------------------------------------------------------|----------|
 | `reviewer`            | `@review`, "check my changes", "review !123"    | Code review (own branch or incoming MR). Auto-detects mode. | all      |
 | `assess-surveyor`     | `@assess`                                       | Read-only single-repo survey; writes `surveys/<repo>.org`   | subagent |
+| `assess-verifier`     | `@assess`                                       | Blind claim check; writes `verification.org` with confidence | subagent |
 
 ---
 

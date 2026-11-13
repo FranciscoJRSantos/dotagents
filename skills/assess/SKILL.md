@@ -132,7 +132,17 @@ Update `STATE.org` with `POSITION` `assess — surveyed <n>/<total> repos`, then
 
 ### Step 5: Verify the Findings
 
-Not yet implemented.
+Give the verifier the claims only, never the survey files. `claims` prints `{id, repo, claim, evidence}` and nothing else (no confidence, no reasoning):
+
+```bash
+S=<this skill's own directory, next to this SKILL.md>
+ls "$DIR"/surveys/*.org >/dev/null || { echo "no surveys"; exit 1; }
+python3 -I "$S/findings_org.py" claims "$DIR"/surveys/*.org > "$DIR/claims.json"
+```
+
+Start one `assess-verifier` subagent with the contents of `claims.json`, each repo's path (from the system map) and the output path `$DIR/verification.org`. The verifier runs on a different model family from the surveyor and writes one heading per finding ID with `:CONFIDENCE:` and `:VERDICT:`. A finding with no heading counts as dropped.
+
+Buckets, applied by `findings_org.py build` in Step 8: confidence ≥80 is kept, 50–79 goes to Open questions, below 50 or with no `path:line` citation is dropped (the verifier's heading is the log), and `intentional` code goes to "Looks bad but is fine". A `GATE: BLOCKED` verifier is reported to the user; do not rank unverified findings.
 
 ### Step 6: Cross-Repo Static Pass
 
@@ -144,7 +154,16 @@ Not yet implemented.
 
 ### Step 8: Rank and Write findings.org
 
-Not yet implemented.
+One command parses the surveys, applies `verification.org`, ranks and writes `findings.org`. Pass each cloned repo as `name=path` so `OWNER` is pre-filled from git history:
+
+```bash
+python3 -I "$S/findings_org.py" build "$DIR" <repo>=<path> <repo>=<path> ...
+~/.agents/bin/org-check "$DIR/findings.org"
+```
+
+Ranking is `priority = impact × interest ÷ effort`, with security, PHI and data-correctness findings first. Groups: Quick wins (impact ≥3, effort ≤2), Strategic (impact ≥3, effort ≥3), Track (impact <3 or beyond the 15-per-repo cap), Accepted (accepted risk). Each ranked finding gets `:GROUP:` and the system Top 5 gets `:TOP5: yes`. Every heading starts as `NEW`. Print the counts `build` returns and list any `malformed` findings it skipped (a bad `:IMPACT:`, a missing `:PATH:`) as coverage gaps; if `nothing_material` is true, say "nothing material found" rather than padding the list.
+
+Tell the user to open `findings.org` in Doom, move each heading to `ACCEPTED`, `REJECTED` (with a `:REASON:`) or `EDITED`, then run `@assess triage`.
 
 ### Step 9: Compare with the Earlier Run
 
@@ -160,7 +179,16 @@ Not yet implemented.
 
 ### Step 11: Check the Triage
 
-Not yet implemented.
+Resolve the run folder (an explicit slug, or the only active `assess-*` folder), then check `findings.org`:
+
+```bash
+OUT=$(~/.agents/bin/artifact-dir "$SLUG"); rc=$?
+DIR=$(printf '%s\n' "$OUT" | sed -n 's/^ARTIFACT_DIR=//p')
+S=<this skill's own directory, next to this SKILL.md>
+python3 -I "$S/findings_org.py" check "$DIR/findings.org"
+```
+
+Exit 1 lists every finding still `NEW` and every `REJECTED` finding without a `:REASON:`; show the list and stop. Exit 0 prints the triage counts (for example `{"ACCEPTED": 9, "EDITED": 2, "REJECTED": 3}`); show them and recommend @reporting to build the report. `AMBIGUOUS` or `NOT FOUND` from `artifact-dir`: show it and ask for the slug.
 
 ---
 
