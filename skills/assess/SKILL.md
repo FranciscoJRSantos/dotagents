@@ -12,7 +12,7 @@ description: >
 # Assess Skill
 
 Runs a tech-lead review across all repos of one system as a single system: a manifest
-of repos, a tool preflight, parallel read-only surveys, then (in later steps) verification,
+of repos, a tool preflight, parallel read-only surveys, a cross-repo pass, an optional log check, then verification,
 ranking and a triage file the team discusses on Confluence. Three modes share this file:
 `@assess [system]` runs the assessment, `@assess triage` checks the triaged
 `findings.org`, `@assess agreed` turns agreed findings into drafts. `@assess` never
@@ -63,6 +63,7 @@ mkdir -p .agents
 
 ```bash
 DIR=.agents/artifacts/$SLUG
+S=<this skill's own directory, next to this SKILL.md>   # holds the helper scripts; reused in every step below
 mkdir -p "$DIR/surveys"
 ```
 
@@ -130,21 +131,7 @@ Each surveyor reads the hotspots first (`python3 -I hotspots.py <repo> 6` — co
 
 Update `STATE.org` with `POSITION` `assess — surveyed <n>/<total> repos`, then continue to Step 5.
 
-### Step 5: Verify the Findings
-
-Give the verifier the claims only, never the survey files. `claims` prints `{id, repo, claim, evidence}` and nothing else (no confidence, no reasoning):
-
-```bash
-S=<this skill's own directory, next to this SKILL.md>
-ls "$DIR"/surveys/*.org >/dev/null || { echo "no surveys"; exit 1; }
-python3 -I "$S/findings_org.py" claims "$DIR"/surveys/*.org > "$DIR/claims.json"
-```
-
-Start one `assess-verifier` subagent with the contents of `claims.json`, each repo's path (from the system map) and the output path `$DIR/verification.org`. The verifier runs on a different model family from the surveyor and writes one heading per finding ID with `:CONFIDENCE:` and `:VERDICT:`. A finding with no heading counts as dropped.
-
-Buckets, applied by `findings_org.py build` in Step 8: confidence ≥80 is kept, 50–79 goes to Open questions, below 50 or with no `path:line` citation is dropped (the verifier's heading is the log), and `intentional` code goes to "Looks bad but is fine". A `GATE: BLOCKED` verifier is reported to the user; do not rank unverified findings.
-
-### Step 6: Cross-Repo Static Pass
+### Step 5: Cross-Repo Static Pass
 
 Match what every repo consumes against what the others (or Terraform, or an OpenAPI spec) declare, in both directions. Collect the Terraform files of the system and, when a repo ships an OpenAPI spec, its route keys (the spec wins for HTTP routes):
 
@@ -178,9 +165,54 @@ EOF
 
 You verify each unmatched item yourself before writing it: open the two cited lines and drop the entry if the match failed only on naming (a renamed route, a runtime-built queue name). Anything you cannot confirm goes under `* Open questions` in the same file, never as a fact. A repo with no interface sheet (a `GATE: BLOCKED` survey) is a coverage gap; name it. If `terraform` was skipped in the preflight, say the match ran without infrastructure declarations.
 
-### Step 7: Log Check (optional, unsandboxed only)
+Then turn every confirmed unmatched item into a finding record (shape in `finding-schema.md`) in `$DIR/surveys/system.org` under `* Findings`, with `:REPO: system`, `:ID: system-<NN>`, `:PATH:` set to `<repo>/<path>` and the evidence cited as `=<repo>/<path>:<line>=`, so verification and ranking pick it up. `cross-repo.org` stays the readable record; only findings in `surveys/` reach `findings.org`.
 
-Not yet implemented.
+
+### Step 6: Log Check (optional, unsandboxed only)
+
+The log check reads production telemetry, so it is opt-in and never runs in the sandbox. Detect the sandbox first: no AWS access (`aws sts get-caller-identity` fails) or any `NONO_*` variable in the environment means sandboxed.
+
+```bash
+env | grep -qi '^NONO' && echo SANDBOXED
+aws sts get-caller-identity >/dev/null 2>&1 || echo NO_AWS_ACCESS
+```
+
+- **Sandboxed, or no AWS access** — skip the step. Write `* Coverage gaps` into `$DIR/log-check.org` with the line "Log check skipped: sandboxed or no AWS access" and continue.
+- **Otherwise** — confirmation gate. Name the log groups, queues and the 14-day window from the system map and ask: "Run the log check against these (read-only, totals only)?" Run nothing until the user confirms.
+
+On confirmation, run the templates in `log-queries.md` (next to this `SKILL.md`) for each repo that has a log group or queue in the map, and write `log-check.org`:
+
+```bash
+cat > "$DIR/log-check.org" <<'EOF'
+#+TITLE: Log check
+#+CREATED: <ISO 8601 timestamp, UTC>
+#+WINDOW: 14 days
+
+* Totals
+** <repo>
+- =<verb> <route>= <caller> <status> :: <count>
+- =<queue>= sent <n>, received <n>, oldest message <hours> h
+
+* Coverage gaps
+- <batch window, service without access logs, short retention, failed query: one line each, with the repo>
+EOF
+~/.agents/bin/org-check "$DIR/log-check.org"
+```
+
+Totals only, IDs masked: the templates capture routes and caller families, never a path ID, address or message. If any value in a result looks like a record identifier or a raw line, drop it and add a coverage gap instead of writing it. Batch windows shorter than the 14 days and services with no access logs are coverage gaps, never evidence that nothing happened. Turn a total that supports a finding (an unused route, a growing backlog) into a finding record in `$DIR/surveys/system.org` (create it as in Step 5 if absent), with the evidence cited as `=log-check.org:<line>=`, always phrased as "no traffic in the window". Only findings under `surveys/` reach Step 7 and `findings.org`.
+
+### Step 7: Verify the Findings
+
+Give the verifier the claims only, never the survey files. `claims` prints `{id, repo, claim, evidence}` and nothing else (no confidence, no reasoning):
+
+```bash
+ls "$DIR"/surveys/*.org >/dev/null || { echo "no surveys"; exit 1; }
+python3 -I "$S/findings_org.py" claims "$DIR"/surveys/*.org > "$DIR/claims.json"
+```
+
+Start one `assess-verifier` subagent with the contents of `claims.json`, each repo's path (from the system map; for `system` findings the evidence starts with `<repo>/`, and `log-check.org:<line>` is read in the run folder) and the output path `$DIR/verification.org`. The verifier runs on a different model family from the surveyor and writes one heading per finding ID with `:CONFIDENCE:` and `:VERDICT:`. A finding with no heading counts as dropped.
+
+Buckets, applied by `findings_org.py build` in Step 8: confidence ≥80 is kept, 50–79 goes to Open questions, below 50 or with no `path:line` citation is dropped (the verifier's heading is the log), and `intentional` code goes to "Looks bad but is fine". A `GATE: BLOCKED` verifier is reported to the user; do not rank unverified findings.
 
 ### Step 8: Rank and Write findings.org
 
