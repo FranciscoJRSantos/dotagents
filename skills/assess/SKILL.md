@@ -16,7 +16,7 @@ of repos, a tool preflight, parallel read-only surveys, a cross-repo pass, an op
 ranking and a triage file the team discusses on Confluence. Three modes share this file:
 `@assess [system]` runs the assessment, `@assess triage` checks the triaged
 `findings.org`, `@assess agreed` turns agreed findings into drafts. `@assess` never
-posts anything; @reporting owns every Confluence write. Detail lives in the run
+posts anything; `@reporting` owns every Confluence write. Detail lives in the run
 folder, not in chat.
 
 The finding and interface-sheet shapes are defined once in `finding-schema.md`, next to
@@ -231,9 +231,9 @@ Tell the user to open `findings.org` in Doom, move each heading to `ACCEPTED`, `
 
 Not yet implemented.
 
-### Step 10: Hand Off to @reporting
+### Step 10: Hand Off to `@reporting`
 
-Not yet implemented.
+Run mode ends at `findings.org`: the report needs the team's triage first. Once `@assess triage` passes (Step 11), build and publish the report with `@reporting assessment <slug>` (the run folder's slug); it reads `findings.org`, `.agents/system.md`, `cross-repo.org`, `log-check.org` and `verification.org` from the run folder and owns the preview, the PHI scan and the Confluence write. Never post anything from here. Update `STATE.org` with `POSITION` `assess — findings.org written, awaiting triage` and tell the user the next two commands: triage in Doom, then `@assess triage`.
 
 ---
 
@@ -250,7 +250,7 @@ S=<this skill's own directory, next to this SKILL.md>
 python3 -I "$S/findings_org.py" check "$DIR/findings.org"
 ```
 
-Exit 1 lists every finding still `NEW` and every `REJECTED` finding without a `:REASON:`; show the list and stop. Exit 0 prints the triage counts (for example `{"ACCEPTED": 9, "EDITED": 2, "REJECTED": 3}`); show them and recommend @reporting to build the report. `AMBIGUOUS` or `NOT FOUND` from `artifact-dir`: show it and ask for the slug.
+Exit 1 lists every finding still `NEW` and every `REJECTED` finding without a `:REASON:`; show the list and stop. Exit 0 prints the triage counts (for example `{"ACCEPTED": 9, "EDITED": 2, "REJECTED": 3}`); show them and recommend `@reporting` to build the report. `AMBIGUOUS` or `NOT FOUND` from `artifact-dir`: show it and ask for the slug.
 
 ---
 

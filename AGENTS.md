@@ -117,4 +117,9 @@ subagents at a time and writes its run folder `.agents/artifacts/assess-<system>
 `.agents/system.md` persists across runs. The surveyor writes under `.agents/**` with
 shell heredocs; the helper scripts live beside the skill (`skills/assess/*.py`).
 
+`@reporting` turns a work folder into one report (assessment, status, decision or
+architecture) and owns every Confluence write: preview, `phi_scan.py` (exit 1 blocks),
+explicit confirmation, then a child page under "Tech Assessments". Space and parent are
+remembered in `.agents/confluence.md`. It never writes to Jira.
+
 Every skill and agent is listed in the [README](README.md).

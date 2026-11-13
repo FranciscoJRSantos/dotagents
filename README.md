@@ -72,6 +72,7 @@ Skills are invoked with `@<id>` (explicit) or matched by description (ambient).
 | `@handoff`      | `@handoff [focus]`                    | Compact the session into a handoff doc + sync STATE.org for the next agent |
 | `@log-hours`    | `@log-hours [YYYY-MM-DD \| yesterday]` | Draft a day's Toggl entries from history + sessions; write on approval    |
 | `@assess`       | `@assess [system] \| triage \| agreed`  | Multi-repo tech-lead assessment: survey, verify, rank, triage             |
+| `@reporting`    | `@reporting <assessment\|status\|decision\|architecture>` | Build a structured report; publish to Confluence after preview + PHI scan + confirm |
 
 ---
 
