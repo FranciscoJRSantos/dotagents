@@ -109,4 +109,12 @@ The `reviewer` loads `~/.agents/partials/review-rules.md` and overlays
 
 **Profile:** `opencode-sandbox` extends `nolabs-ai/opencode`, defined in `~/.config/nono/profiles/opencode-sandbox.json`.
 
+## Assessment
+
+`@assess` surveys a multi-repo system. It fans out at most 4 `assess-surveyor`
+subagents at a time and writes its run folder `.agents/artifacts/assess-<system>-<YYYY-MM>/`
+(`preflight.org`, `surveys/<repo>.org`, later `findings.org`). The repo manifest
+`.agents/system.md` persists across runs. The surveyor writes under `.agents/**` with
+shell heredocs; the helper scripts live beside the skill (`skills/assess/*.py`).
+
 Every skill and agent is listed in the [README](README.md).

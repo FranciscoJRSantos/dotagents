@@ -71,6 +71,7 @@ Skills are invoked with `@<id>` (explicit) or matched by description (ambient).
 | `@create-skill` | `@create-skill [skill\|agent] [name]` | Guide creation of new skills and agents using research-backed checklist   |
 | `@handoff`      | `@handoff [focus]`                    | Compact the session into a handoff doc + sync STATE.org for the next agent |
 | `@log-hours`    | `@log-hours [YYYY-MM-DD \| yesterday]` | Draft a day's Toggl entries from history + sessions; write on approval    |
+| `@assess`       | `@assess [system] \| triage \| agreed`  | Multi-repo tech-lead assessment: survey, verify, rank, triage             |
 
 ---
 
@@ -81,6 +82,7 @@ Primary agents are Tab-switchable during a session. Subagents run in isolated co
 | Agent                 | Trigger                                         | Purpose                                                     | Mode     |
 |-----------------------|-------------------------------------------------|-------------------------------------------------------------|----------|
 | `reviewer`            | `@review`, "check my changes", "review !123"    | Code review (own branch or incoming MR). Auto-detects mode. | all      |
+| `assess-surveyor`     | `@assess`                                       | Read-only single-repo survey; writes `surveys/<repo>.org`   | subagent |
 
 ---
 
