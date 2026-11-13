@@ -146,7 +146,37 @@ Buckets, applied by `findings_org.py build` in Step 8: confidence ≥80 is kept,
 
 ### Step 6: Cross-Repo Static Pass
 
-Not yet implemented.
+Match what every repo consumes against what the others (or Terraform, or an OpenAPI spec) declare, in both directions. Collect the Terraform files of the system and, when a repo ships an OpenAPI spec, its route keys (the spec wins for HTTP routes):
+
+```bash
+# OpenAPI route keys, one "METHOD /path" per line (only when a spec exists)
+yq '.paths | to_entries | .[] | .key as $p | .value | keys | .[] | select(test("^(get|post|put|patch|delete|head|options)$")) | upcase + " " + $p' <openapi.yaml> > "$DIR/openapi-keys.txt"
+python3 -I "$S/interface_match.py" "$DIR" --tf <infra/main.tf> [--tf <more.tf>] [--openapi "$DIR/openapi-keys.txt"] > "$DIR/interface-match.json"
+```
+
+Write `cross-repo.org` from the match plus four fixed checks, in this skeleton:
+
+```bash
+cat > "$DIR/cross-repo.org" <<'EOF'
+#+TITLE: Cross-repo pass
+#+CREATED: <ISO 8601 timestamp, UTC>
+
+<the Interface match section from interface_match.render(), or the JSON summarised the same way>
+
+* Fixed checks
+** API contracts
+- <unmatched HTTP consumers and producers, versioning gaps, each with =repo= and =path:line=>
+** Data contracts
+- <queue, topic, bucket and table shapes read in one repo and written in another, each cited>
+** Config and infra drift
+- <env vars and resources one repo needs that Terraform or the other repos never declare>
+** Shared dependencies and practices
+- <same library at different majors, three styles of the same thing, a missing shared standard>
+EOF
+~/.agents/bin/org-check "$DIR/cross-repo.org"
+```
+
+You verify each unmatched item yourself before writing it: open the two cited lines and drop the entry if the match failed only on naming (a renamed route, a runtime-built queue name). Anything you cannot confirm goes under `* Open questions` in the same file, never as a fact. A repo with no interface sheet (a `GATE: BLOCKED` survey) is a coverage gap; name it. If `terraform` was skipped in the preflight, say the match ran without infrastructure declarations.
 
 ### Step 7: Log Check (optional, unsandboxed only)
 
