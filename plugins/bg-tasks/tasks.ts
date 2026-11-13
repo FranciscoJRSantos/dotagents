@@ -147,7 +147,7 @@ export function createTaskManager(opts: {
         offset += chunk.length
         partial = lines.pop() ?? ""
         if (size > offset) {
-          offset = size // burst larger than the cap: drop the rest, matches past MATCH_LIMIT are discarded anyway
+          offset = size // burst larger than the cap: drop the rest; bulk output past 1 MiB per tick is best-effort
           partial = ""
         }
         for (const line of lines) {

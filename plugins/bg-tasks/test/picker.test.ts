@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { killSelected, pickerOptions } from "../picker.ts"
+import { errorText, killSelected, pickerOptions } from "../picker.ts"
 import { reduce, type UiState } from "../tui-state.ts"
 import type { Task } from "../tasks.ts"
 
@@ -57,4 +57,12 @@ test("without a session, options cover every session", () => {
   let s = reduce(empty, { type: "started", task: task({ id: "a" }) })
   s = reduce(s, { type: "started", task: task({ id: "b", sessionID: "other" }) })
   assert.equal(pickerOptions(s, undefined, 0).length, 2)
+})
+
+test("errorText renders plain-object RPC errors instead of [object Object]", () => {
+  assert.equal(errorText(new Error("boom")), "boom")
+  assert.equal(errorText("plain"), "plain")
+  assert.equal(errorText({ type: "other", message: "nope" }), "nope")
+  assert.match(errorText({ type: "unknown_task", message: "Unknown background task: x" }), /Unknown background task: x.*reloaded/)
+  assert.equal(errorText({ weird: 1 }), '{"weird":1}')
 })

@@ -15,6 +15,17 @@ export function pickerOptions(state: UiState, sessionID: string | undefined, now
   return [...running.map((t) => option(t, "Running")), ...finished.map((t) => option(t, "Finished"))]
 }
 
+/** RPC failures are plain objects (not Error instances), so `String(err)` would print "[object Object]". */
+export function errorText(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { message?: unknown; type?: unknown }
+    const text = typeof e.message === "string" ? e.message : JSON.stringify(err)
+    // The server forgets every task when its plugin reloads, while the TUI keeps listing them.
+    return e.type === "unknown_task" ? `${text} (the server plugin was reloaded since it ran)` : text
+  }
+  return String(err)
+}
+
 /** Kill through RPC (not the agent). Never throws: the result is shown as a toast. */
 export async function killSelected(
   rpc: { kill: (input: { id: string }) => Promise<unknown> },
@@ -28,6 +39,6 @@ export async function killSelected(
     await rpc.kill({ id })
     return { message: `sent SIGTERM to bg task ${id} (SIGKILL after 5s)`, variant: "warning" }
   } catch (err) {
-    return { message: `could not kill bg task ${id}: ${err instanceof Error ? err.message : String(err)}`, variant: "error" }
+    return { message: `could not kill bg task ${id}: ${errorText(err)}`, variant: "error" }
   }
 }

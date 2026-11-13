@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { createSignal, For, Show } from "solid-js"
 import { BgTasks } from "./rpc.ts"
-import { killSelected, pickerOptions } from "./picker.ts"
+import { errorText, killSelected, pickerOptions } from "./picker.ts"
 import { attentionFor, footerText, reduce, sidebarRows, toastFor, type UiAction, type UiState } from "./tui-state.ts"
 
 const FLASH_MS = 5_000
@@ -35,7 +35,13 @@ export default Plugin.define({
         if (name === "exited" && event.data.reason !== "reload") {
           const id = event.data.task.id
           clearTimeout(flashTimers.get(id))
-          flashTimers.set(id, setTimeout(() => apply({ type: "flash-expired", taskID: id }), FLASH_MS))
+          flashTimers.set(
+            id,
+            setTimeout(() => {
+              flashTimers.delete(id)
+              apply({ type: "flash-expired", taskID: id })
+            }, FLASH_MS),
+          )
         }
       }),
     )
@@ -79,7 +85,7 @@ export default Plugin.define({
       try {
         text = (await rpc.output({ id: id as string, bytes: 4_000 })).text
       } catch (err) {
-        text = `could not read log: ${err instanceof Error ? err.message : String(err)}`
+        text = `could not read log: ${errorText(err)}`
       }
       await context.ui.dialog.alert({ title: `bg task ${id}`, message: text || "(no output yet)" })
       await openPicker()
