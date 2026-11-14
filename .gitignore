@@ -16,3 +16,6 @@ __pycache__/
 # Real global rules — identity/preferences stay off the public repo.
 # Tracked template: global/AGENTS.md.example
 /global/AGENTS.md
+
+# Environment-dependent link (global/AGENTS.md is itself gitignored)
+/stow/opencode/.config/opencode/AGENTS.md

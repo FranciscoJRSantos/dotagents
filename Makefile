@@ -1,113 +1,53 @@
 GLOBAL_SKILLS      := skills
-
 AGENTS_SRC         := agents
-AGENTS_DIR         ?= $(HOME)/.agents
-
-## Shared scripts skills call (artifact-dir, md2org, org-check, slug) → ~/.agents/bin/.
-## They share ~/.agents/ with agents/partials, and manifest-sync keeps one manifest
-## per target, so both MUST be synced in one call (deploy and drift) — separate calls
-## would delete each other's manifest entries.
-BIN_SRC            := bin
-AGENTS_DIR_ITEMS   := $(AGENTS_SRC)/partials $(BIN_SRC)
 
 ## Files that resolve the active work folder: each must call ~/.agents/bin/artifact-dir
 ## (checked by lint-agents).
 ARTIFACT_DIR_CALLERS := $(GLOBAL_SKILLS)/arch/SKILL.md $(GLOBAL_SKILLS)/build/SKILL.md $(GLOBAL_SKILLS)/review/SKILL.md $(GLOBAL_SKILLS)/ship/SKILL.md \
   $(GLOBAL_SKILLS)/handoff/SKILL.md $(GLOBAL_SKILLS)/assess/SKILL.md $(GLOBAL_SKILLS)/reporting/SKILL.md
 
-OPENCODE_SKILLS_DIR ?= $(HOME)/.config/opencode/skills
-OPENCODE_AGENTS_DIR  ?= $(HOME)/.config/opencode/agents
+## Generated Claude Code agent variants (gitignored build output, linked by stow/claude).
+CLAUDE_AGENTS_BUILD := build/claude-agents
 
-CLAUDE_SKILLS_DIR  ?= $(HOME)/.claude/skills
-CLAUDE_AGENTS_DIR  ?= $(HOME)/.claude/agents
-
-## Local global rules (gitignored). Template: global/AGENTS.md.example
-GLOBAL_AGENTS_SRC   := global/AGENTS.md
-GLOBAL_AGENTS_DEST  ?= $(HOME)/.config/opencode/AGENTS.md
-
-## Set DRY_RUN=1 to preview what deploy/drift would change (rsync --dry-run).
+## Set DRY_RUN=1 to preview what `make link` would change (stow -n, migration dry run).
 DRY_RUN ?=
 ifeq ($(DRY_RUN),1)
-RSYNC_DRY := --dry-run
+STOW_FLAGS := -n -v
 else
-RSYNC_DRY :=
+STOW_FLAGS :=
 endif
 
-.PHONY: check-pandoc deploy deploy-skills deploy-agents deploy-plugins deploy-global test-plugins drift lint lint-skills lint-agents lint-docs test list-skills list-agents
+.PHONY: check-cmds check-pandoc link stow-gen build-claude lint-links test-plugins lint lint-skills lint-agents lint-docs test list-skills list-agents
 
-## Deploy everything to OpenCode and Claude Code (skills, agents, global rules).
-## Each target dir keeps a .personal-agents-manifest; only listed items are touched.
-deploy: check-pandoc deploy-skills deploy-agents deploy-plugins deploy-global
+## Link everything into OpenCode, Claude Code and ~/.agents with stow. Edits to skills,
+## agents, plugins, bin/ and global/AGENTS.md take effect in place; there is no deploy step.
+## --no-folding keeps the live skills/ and agents/ dirs real, so harness-owned entries
+## (synced/, nono-sandbox.ts) never land inside this repo.
+link: check-cmds stow-gen build-claude
+	@scripts/migrate-manifests.sh $(if $(filter 1,$(DRY_RUN)),--dry-run)
+	@cd stow && stow $(STOW_FLAGS) --no-folding -R -t "$(HOME)" opencode claude agents-home \
+		$(if $(filter 1,$(DRY_RUN)),|| echo "NOTE  stow conflicts above are expected until the old copies are removed by a real make link")
 
-## bin/md2org needs pandoc; fail before anything is deployed or linted without it.
+## Regenerate stow/ from the repo sources (a deleted skill or agent drops out of stow/).
+stow-gen:
+	@scripts/gen-stow.sh
+
+## Claude Code variants of the agents (frontmatter rebuilt) → build/claude-agents/.
+build-claude:
+	@scripts/build-claude.sh "$(AGENTS_SRC)" "$(CLAUDE_AGENTS_BUILD)"
+
+## Every link under stow/ must resolve.
+lint-links: stow-gen build-claude
+	@scripts/lint-stow-links.sh
+
+## Fail before anything is written when a required tool is missing.
+check-cmds: check-pandoc
+	@command -v stow >/dev/null 2>&1 || { echo "FAIL  stow not found — install it (dnf install stow)"; exit 1; }
+	@command -v yq >/dev/null 2>&1 && yq --version 2>&1 | grep -q mikefarah || { echo "FAIL  mikefarah yq not found — install it (mise use yq)"; exit 1; }
+
+## bin/md2org needs pandoc; fail before linting without it.
 check-pandoc:
 	@command -v pandoc >/dev/null 2>&1 || { echo "FAIL  pandoc not found — install it (dnf install pandoc); bin/md2org needs it"; exit 1; }
-
-## Skills → ~/.config/opencode/skills/ and ~/.claude/skills/ (agents untouched).
-## Use this to ship skill changes without clobbering live agents with a stale repo.
-deploy-skills:
-	@echo "Deploying skills to $(OPENCODE_SKILLS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/
-	@echo "Deploying skills to $(CLAUDE_SKILLS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(CLAUDE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/
-
-## Agents → ~/.config/opencode/agents/ (source md), ~/.claude/agents/ (generated
-## Claude variants) and ~/.agents/ (partials and the shared bin/ scripts).
-deploy-agents: check-pandoc
-	@echo "Deploying agents to $(OPENCODE_AGENTS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh "$(AGENTS_SRC)" "$(OPENCODE_AGENTS_DIR)" --md-only
-	@if [ -L "$(CLAUDE_AGENTS_DIR)" ]; then \
-		if [ "$(DRY_RUN)" = "1" ]; then \
-			echo "MIGRATE $(CLAUDE_AGENTS_DIR): would replace the symlink with a real dir (target left intact)"; \
-		else \
-			echo "MIGRATE $(CLAUDE_AGENTS_DIR): replacing the symlink with a real dir (target left intact)"; \
-			rm "$(CLAUDE_AGENTS_DIR)"; \
-		fi; \
-	fi
-	@echo "Deploying generated Claude agent variants to $(CLAUDE_AGENTS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh "$(AGENTS_SRC)" "$(CLAUDE_AGENTS_DIR)" --claude
-	@echo "Deploying agent partials and bin/ scripts to $(AGENTS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(AGENTS_DIR)" $(AGENTS_DIR_ITEMS)
-
-## Plugins → ~/.config/opencode/plugins/ (manifest-tracked; the nono-sandbox symlink there is left alone)
-OPENCODE_PLUGINS_DIR ?= $(HOME)/.config/opencode/plugins
-
-deploy-plugins:
-	@echo "Deploying plugins to $(OPENCODE_PLUGINS_DIR)..."
-	@DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh "$(OPENCODE_PLUGINS_DIR)" plugins/*/
-
-## Global rules → ~/.config/opencode/AGENTS.md
-## The source file is gitignored; skips with a warning when it is absent.
-deploy-global:
-	@if [ ! -f "$(GLOBAL_AGENTS_SRC)" ]; then \
-		echo "WARN  $(GLOBAL_AGENTS_SRC) not found — skipping (create it from global/AGENTS.md.example)"; \
-	else \
-		echo "Deploying global rules to $(GLOBAL_AGENTS_DEST)..."; \
-		mkdir -p "$$(dirname "$(GLOBAL_AGENTS_DEST)")"; \
-		rsync -av $(RSYNC_DRY) "$(GLOBAL_AGENTS_SRC)" "$(GLOBAL_AGENTS_DEST)"; \
-	fi
-
-## Read-only check: diff the repo against every deployed location. Never copies.
-drift:
-	@status=0; \
-	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(OPENCODE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/ || status=1; \
-	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(CLAUDE_SKILLS_DIR)" $(GLOBAL_SKILLS)/*/ || status=1; \
-	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(OPENCODE_AGENTS_DIR)" --md-only || status=1; \
-	DRY_RUN=$(DRY_RUN) scripts/deploy-agents.sh --drift "$(AGENTS_SRC)" "$(CLAUDE_AGENTS_DIR)" --claude || status=1; \
-	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(AGENTS_DIR)" $(AGENTS_DIR_ITEMS) || status=1; \
-	DRY_RUN=$(DRY_RUN) scripts/manifest-sync.sh --drift "$(OPENCODE_PLUGINS_DIR)" plugins/*/ || status=1; \
-	if [ ! -f "$(GLOBAL_AGENTS_SRC)" ]; then \
-		echo "INFO  $(GLOBAL_AGENTS_SRC) not found — skipping global rules drift"; \
-	elif [ ! -f "$(GLOBAL_AGENTS_DEST)" ]; then \
-		echo "DIFF  global rules: $(GLOBAL_AGENTS_DEST) not found"; \
-		status=1; \
-	elif diff -q "$(GLOBAL_AGENTS_SRC)" "$(GLOBAL_AGENTS_DEST)" >/dev/null; then \
-		echo "OK    global rules"; \
-	else \
-		echo "DIFF  global rules"; \
-		status=1; \
-	fi; \
-	exit $$status
 
 ## List all skills
 list-skills:
@@ -125,10 +65,10 @@ test: test-plugins
 test-plugins:
 	@for d in plugins/*/; do (cd "$$d" && node --test 'test/*.test.ts') || exit 1; done
 
-## Validate skills, agents and docs, then run the tests
-lint: check-pandoc lint-skills lint-agents lint-docs test
+## Validate skills, agents, docs and stow links, then run the tests
+lint: check-pandoc lint-skills lint-agents lint-docs lint-links test
 
-## Validate SKILL.md files before deploying
+## Validate SKILL.md files before linking
 lint-skills:
 	@ok=true; \
 	for dir in $(GLOBAL_SKILLS)/*/; do \
@@ -159,7 +99,7 @@ lint-skills:
 	done; \
 	$$ok
 
-## Validate agent .md files before deploying
+## Validate agent .md files before linking
 lint-agents:
 	@ok=true; \
 	for f in $(AGENTS_SRC)/*.md; do \
@@ -224,7 +164,7 @@ lint-agents:
 	echo ""; \
 	echo "=== Checking generated Claude agent variants ==="; \
 	gen=$$(mktemp -d); \
-	if ! scripts/deploy-agents.sh --emit "$$gen" "$(AGENTS_SRC)" >/dev/null 2>&1; then \
+	if ! scripts/build-claude.sh "$(AGENTS_SRC)" "$$gen" >/dev/null 2>&1; then \
 		echo "FAIL  could not generate Claude agent variants"; \
 		ok=false; \
 	else \

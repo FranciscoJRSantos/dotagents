@@ -8,12 +8,12 @@ skills/<name>/SKILL.md   ← one skill per file
 agents/<name>.md         ← one agent per file
 ```
 
-`make deploy` syncs skills and agents to OpenCode and Claude Code,
-generating the Claude Code agent variants and installing the shared `partials/` to
-`~/.agents/`.
+`make link` stows skills, agents, plugins and the shared `bin/` and `partials/` into
+OpenCode, Claude Code and `~/.agents/` as symlinks (edits apply in place),
+generating the Claude Code agent variants into `build/claude-agents/`.
 Personal global rules live at `global/AGENTS.md` (gitignored; template
 `global/AGENTS.md.example`). See the [README](README.md) for the targets and the
-`make lint` / `make drift` commands.
+`make link` / `make lint` commands.
 
 ## Skills vs Agents
 

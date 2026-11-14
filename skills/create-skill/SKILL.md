@@ -23,7 +23,7 @@ producing the draft. Nothing is written until the user explicitly approves.
   separate actions — writing before approval means the user cannot course-correct the
   structure cheaply.
 - Always run lint after writing BECAUSE a file that fails `make lint-skills` or
-  `make lint-agents` is not deployed and will not show up in OpenCode.
+  `make lint-agents` is not linked and will not show up in OpenCode.
 - Never embed vocabulary routing frames in skills BECAUSE skills run in the main
   conversation and should stay thin; only agents need specialist frames since they
   are purpose-built for isolated analysis.
@@ -183,7 +183,7 @@ After the Summary section, close with exactly one of:
 ````
 
 The agent's `name` comes from its filename — never add a `name:` field. Use an
-OpenCode model id (e.g. `opencode-go/qwen3.7-plus`); deploy generates the Claude
+OpenCode model id (e.g. `opencode-go/qwen3.7-plus`); `make link` generates the Claude
 Code variant with `model: inherit` and a `tools` list derived from `permissions`.
 
 ---
@@ -218,15 +218,13 @@ make lint-agents   # for agents
 
 ---
 
-## Step 7: Offer to Deploy
+## Step 7: Offer to Link
 
 If lint passes:
 
-> "Lint passed. Say 'deploy' to push it now, or run `make deploy` yourself."
+> "Lint passed. Say 'link' to make it live now, or run `make link` yourself."
 
-If the user says 'deploy':
-- For skills: `make deploy`
-- For agents: `make deploy-agents`
+If the user says 'link', run `make link` (skills, agents and plugins share the one target).
 
 Confirm the command output and the destination path.
 

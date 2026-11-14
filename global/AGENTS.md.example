@@ -5,7 +5,7 @@
 
   Copy this file to `global/AGENTS.md` and fill in your details.
   `global/AGENTS.md` is gitignored so your real identity and preferences stay
-  off the public repo. `make deploy-global` installs it to
+  off the public repo. `make link` symlinks it to
   ~/.config/opencode/AGENTS.md (which ~/.claude/CLAUDE.md symlinks to).
 -->
 
